@@ -51,6 +51,11 @@ var facing_dir: int = 1
 var aiming: bool = false
 var shooting: bool = false
 
+# --- Pre-aim (press shoot without aiming -> play aim for X frames, then shoot) ---
+var pre_aiming: bool = false
+var pre_aim_frames: int = 0
+const PRE_AIM_FRAME_COUNT: int = 10
+
 # jumps
 const MAX_JUMPS = 2
 var jumps_left: int = MAX_JUMPS
@@ -83,14 +88,53 @@ func _physics_process(delta: float) -> void:
 		velocity.x = facing_dir * DASH_SPEED
 		velocity.y = 0
 		is_dashing = true
+		# cancel pre-aim if dashing interrupts it
+		pre_aiming = false
 		_change_state(STATE_DASH)
 
 	# --- Aim & Shoot ---
 	aiming = Input.is_action_pressed("Aim")
-	if Input.is_action_just_pressed("Shoot"):
-		# play shoot animation but do not forcibly stop movement
-		shooting = true
-		_change_state(STATE_SHOOT)
+
+	# Only handle Shoot press if not already shooting or pre-aiming
+	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
+		# if player is currently aiming, shoot immediately
+		if aiming:
+			shooting = true
+			_change_state(STATE_SHOOT)
+		else:
+			# start pre-aim: play Aim animation for a few frames, then fire
+			pre_aiming = true
+			pre_aim_frames = PRE_AIM_FRAME_COUNT
+
+			# --- determine motion-based Aim animation so we play correct Aim* animation ---
+			var base_motion: String = "Idle"
+			var abs_vel_x = abs(velocity.x)
+			if is_on_floor():
+				if abs_vel_x == 0:
+					base_motion = "Idle"
+				elif abs_vel_x > WALK_SPEED:
+					base_motion = "Run"
+				else:
+					base_motion = "Walk"
+			else:
+				if velocity.y < 0:
+					base_motion = "Jump"
+				else:
+					base_motion = "Fall"
+
+			var aim_motion_name = "Aim" + base_motion  # e.g. AimWalk, AimJump
+			# prefer Aim + motion if available, else generic "Aim", else fallback to state
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_motion_name):
+				animated_sprite.play(aim_motion_name)
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim"):
+				animated_sprite.play("Aim")
+			else:
+				# fallback to aim state visuals (will be handled by the state machine)
+				_change_state(STATE_AIM)
+
+	# If something interrupts (hit/dash) cancel pre-aim
+	if is_dashing or is_hit:
+		pre_aiming = false
 
 	# --- Jump buffer handling ---
 	if Input.is_action_just_pressed("Jump"):
@@ -175,6 +219,11 @@ func _physics_process(delta: float) -> void:
 		# skip the normal movement-driven state selection while shooting
 		return
 
+	# If pre-aiming, keep the visually-played aim animation — don't call _change_state here (that would overwrite it)
+	if pre_aiming:
+		# preserve the manually played Aim* animation while allowing movement/physics to continue
+		return
+
 	if not is_dashing and not is_hit:
 		var abs_vel_x = abs(velocity.x)
 		if not is_on_floor():
@@ -191,7 +240,7 @@ func _physics_process(delta: float) -> void:
 				_change_state(STATE_WALK)
 
 	# If the player is holding aim and we're not shooting/dashing/hit, prefer the aim state
-	if aiming and not is_dashing and not is_hit and not shooting:
+	if aiming and not is_dashing and not is_hit and not shooting and not pre_aiming:
 		_change_state(STATE_AIM)
 
 # -------------------------
@@ -201,6 +250,8 @@ func take_damage():
 	_change_state(STATE_HIT)
 	is_hit = true
 	velocity.x = 0
+	# cancel pre-aim if hit
+	pre_aiming = false
 	print("Take DAMAGE!!")
 
 # jump implementations
@@ -359,5 +410,21 @@ func _on_animation_finished() -> void:
 			_change_state(STATE_FALL)
 
 func _on_frame_changed():
-	# Placeholder for frame-driven events (e.g. enabling hitboxes for melee)
+	# Handle pre-aim frame counting (called once per animated_sprite frame change)
+	if pre_aiming:
+		# if player started holding aim during pre-aim, shoot immediately
+		if aiming:
+			pre_aiming = false
+			shooting = true
+			_change_state(STATE_SHOOT)
+			return
+
+		pre_aim_frames -= 1
+		if pre_aim_frames <= 0:
+			pre_aiming = false
+			shooting = true
+			_change_state(STATE_SHOOT)
+			return
+
+	# Placeholder for other frame-driven events (e.g. enabling hitboxes for melee)
 	pass
