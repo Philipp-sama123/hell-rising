@@ -1,4 +1,4 @@
-[gd_scene load_steps=199 format=3 uid="uid://c2ifcpfan6bo0"]
+[gd_scene load_steps=196 format=3 uid="uid://c2ifcpfan6bo0"]
 
 [ext_resource type="Script" uid="uid://yrs2ka60puoa" path="res://prefabs/player.gd" id="1_4dohe"]
 [ext_resource type="Texture2D" uid="uid://cw1cpa5qqro6x" path="res://assets/FemaleAgent/GandalfHardcore Female Agent black.png" id="1_72ieh"]
@@ -97,35 +97,23 @@ region = Rect2(448, 1088, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_u51tk"]
 atlas = ExtResource("1_72ieh")
-region = Rect2(0, 832, 64, 64)
+region = Rect2(0, 192, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_kbsxf"]
 atlas = ExtResource("1_72ieh")
-region = Rect2(64, 832, 64, 64)
+region = Rect2(64, 192, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_rgeog"]
 atlas = ExtResource("1_72ieh")
-region = Rect2(128, 832, 64, 64)
+region = Rect2(128, 192, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_opo22"]
 atlas = ExtResource("1_72ieh")
-region = Rect2(192, 832, 64, 64)
+region = Rect2(192, 192, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_8rb0w"]
 atlas = ExtResource("1_72ieh")
-region = Rect2(256, 832, 64, 64)
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_sd3sa"]
-atlas = ExtResource("1_72ieh")
-region = Rect2(320, 832, 64, 64)
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_m2qjg"]
-atlas = ExtResource("1_72ieh")
-region = Rect2(384, 832, 64, 64)
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_llb5v"]
-atlas = ExtResource("1_72ieh")
-region = Rect2(448, 832, 64, 64)
+region = Rect2(256, 192, 64, 64)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_x0bak"]
 atlas = ExtResource("1_72ieh")
@@ -885,15 +873,6 @@ animations = [{
 }, {
 "duration": 1.0,
 "texture": SubResource("AtlasTexture_8rb0w")
-}, {
-"duration": 1.0,
-"texture": SubResource("AtlasTexture_sd3sa")
-}, {
-"duration": 1.0,
-"texture": SubResource("AtlasTexture_m2qjg")
-}, {
-"duration": 1.0,
-"texture": SubResource("AtlasTexture_llb5v")
 }],
 "loop": false,
 "name": &"AimShoot",
@@ -1529,8 +1508,8 @@ script = ExtResource("1_4dohe")
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_an77k")
-animation = &"ShootFall"
+animation = &"AimShoot"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-position = Vector2(5, 8)
+position = Vector2(0, 8)
 shape = SubResource("CapsuleShape2D_7fbtx")

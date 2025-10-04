@@ -14,6 +14,7 @@ class_name player
 @export var JUMP_DELAY = 0.15
 @export var JUMP_HOLD_TIME = 0.25
 @export var HOLD_GRAVITY_MULT = 0.25
+@export var PRE_AIM_FRAME_COUNT: int = 5
 
 # --- Animation states ---
 enum {
@@ -54,7 +55,6 @@ var shooting: bool = false
 # --- Pre-aim (press shoot without aiming -> play aim for X frames, then shoot) ---
 var pre_aiming: bool = false
 var pre_aim_frames: int = 0
-const PRE_AIM_FRAME_COUNT: int = 10
 
 # jumps
 const MAX_JUMPS = 2
@@ -326,9 +326,6 @@ func _change_state(new_state):
 			# _play_anim_with_aim will prefer Aim + base_motion automatically
 			_play_anim_with_aim(base_motion)
 		STATE_SHOOT:
-			# Special logic: prefer AimShoot + motion (if aiming),
-			# then motion-specific Shoot (ShootJump/ShootFall/ShootRun/ShootWalk),
-			# then generic AimShoot / Shoot, then fallback to motion.
 			var abs_vel_x = abs(velocity.x)
 			var base_motion: String = "Idle"
 
@@ -345,22 +342,11 @@ func _change_state(new_state):
 				else:
 					base_motion = "Fall"
 
-			var aim_motion_shoot_name = "AimShoot" + base_motion   # e.g. AimShootJump
 			var motion_shoot_name = "Shoot" + base_motion         # e.g. ShootJump
-
-			# prefer AimShootMotion if aiming and exists
-			if aiming and animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_motion_shoot_name):
-				animated_sprite.play(aim_motion_shoot_name)
-				return
 
 			# then try motion-specific Shoot (ShootJump / ShootFall / ShootRun / ShootWalk)
 			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(motion_shoot_name):
 				animated_sprite.play(motion_shoot_name)
-				return
-
-			# try generic AimShoot (aiming) then generic Shoot
-			if aiming and animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("AimShoot"):
-				animated_sprite.play("AimShoot")
 				return
 
 			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
@@ -426,5 +412,5 @@ func _on_frame_changed():
 			_change_state(STATE_SHOOT)
 			return
 
-	# Placeholder for other frame-driven events (e.g. enabling hitboxes for melee)
+	# Placeholder for other frame-driven events
 	pass
