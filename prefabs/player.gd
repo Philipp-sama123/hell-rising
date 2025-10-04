@@ -5,7 +5,7 @@ class_name player
 # --- Movement constants ---
 @export var WALK_SPEED = 30.0
 @export var RUN_SPEED = 60.0
-@export var DASH_SPEED = 250.0
+@export var DASH_SPEED = 450.0
 
 # --- Jump/gravity ---
 @export var JUMP_VELOCITY = -300.0
