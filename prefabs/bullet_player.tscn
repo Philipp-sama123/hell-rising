@@ -5,6 +5,7 @@
 [ext_resource type="Texture2D" uid="uid://doi3mm7kgw24x" path="res://assets/Pixel Bullet 16x16(2).png" id="3_8y5fe"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_db0hv"]
+size = Vector2(20, 6)
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_th5n2"]
 atlas = ExtResource("2_k38sd")
