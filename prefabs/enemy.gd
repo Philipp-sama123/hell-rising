@@ -2,10 +2,10 @@ extends CharacterBody2D
 
 signal shoot
 
-@export var SPEED: float = 50.0
+@export var SPEED: float = 25.0
 @export var detection_range: float = 800.0
-@export var stop_min: float = 10.0
-@export var stop_max: float = 50.0
+@export var stop_min: float = 50.0
+@export var stop_max: float = 250.0
 @export var shoot_cooldown: float = 1.0
 @export var bullet_speed: float = 300.0
 @export var muzzle_node_path: NodePath = NodePath("Muzzle")

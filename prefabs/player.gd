@@ -2,8 +2,8 @@ extends CharacterBody2D
 class_name player
 
 @export var WALK_SPEED: float = 30.0
-@export var RUN_SPEED: float = 60.0
-@export var DASH_SPEED: float = 450.0
+@export var RUN_SPEED: float = 100.0
+@export var DASH_SPEED: float = 500.0
 @export var BULLET_SPEED: float = 150.0
 
 @export var JUMP_VELOCITY: float = -300.0
@@ -255,6 +255,8 @@ func _on_frame_changed() -> void:
 		_spawn_bullet()
 
 func take_damage(damage) -> void:
+	if is_dashing: return
+	
 	# generic damage hook: start a short stun so other damage sources also block input briefly
 	velocity.x = 0
 	pre_aiming = false
@@ -282,6 +284,7 @@ func _spawn_bullet() -> void:
 
 func _update_muzzle_transform() -> void:
 	if not muzzle: return
+	
 	muzzle.position.x = _muzzle_base_offset.x * facing_dir
 	muzzle.position.y = _muzzle_base_offset.y
 	muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
@@ -289,6 +292,8 @@ func _update_muzzle_transform() -> void:
 
 func add_impulse(impulse: Vector2) -> void:
 	# Set horizontal velocity to the impulse (prevents stacking) and enter hit stun.
+	if is_dashing: return
+	
 	velocity.x = impulse.x
 	is_hit = true
 	if _hit_timer:

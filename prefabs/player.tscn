@@ -1504,6 +1504,8 @@ height = 48.39618
 
 [node name="Player" type="CharacterBody2D"]
 scale = Vector2(1, 0.9918139)
+collision_layer = 2
+collision_mask = 9
 script = ExtResource("1_4dohe")
 BulletScene = ExtResource("2_r66lb")
 
