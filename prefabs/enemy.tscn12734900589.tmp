@@ -381,6 +381,17 @@ animations = [{
 [node name="Enemy" type="CharacterBody2D"]
 texture_filter = 1
 script = ExtResource("1_yfjof")
+SPEED = null
+detection_range = null
+stop_min = null
+stop_max = null
+shoot_cooldown = null
+bullet_speed = null
+muzzle_node_path = null
+player_path = null
+sprite_faces_right = null
+extra_hold_seconds = null
+default_shoot_anim_duration = null
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, 12)

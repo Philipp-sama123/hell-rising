@@ -33,6 +33,11 @@ var _alive: bool = true
 var _is_shoot_anim: bool = false
 var _hold_timer: float = 0.0
 
+# --- muzzle original transforms (for flipping)
+var _muzzle_offset: Vector2 = Vector2.ZERO
+var _muzzle_original_rotation: float = 0.0
+var _muzzle_scale_abs: float = 1.0
+
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 func _ready() -> void:
@@ -53,6 +58,11 @@ func _ready() -> void:
 		printerr("Enemy: couldn't find a player node. Set player_path or add player to 'player' group.")
 
 	_muzzle = get_node_or_null(muzzle_node_path)
+	# record muzzle original local transform so we can mirror reliably
+	if _muzzle and _muzzle is Node2D:
+		_muzzle_offset = (_muzzle as Node2D).position
+		_muzzle_original_rotation = (_muzzle as Node2D).rotation
+		_muzzle_scale_abs = abs((_muzzle as Node2D).scale.x)
 
 	# randomize stopping distance
 	var rng = RandomNumberGenerator.new()
@@ -99,6 +109,9 @@ func _physics_process(delta: float) -> void:
 		var player_left = _player.global_position.x < global_position.x
 		animated_sprite.flip_h = (player_left != sprite_faces_right)
 
+		# mirror muzzle after sprite flip so muzzle stays on the correct side
+		_update_muzzle_flip(animated_sprite.flip_h)
+
 	# out of detection range -> idle
 	if dist_x > detection_range:
 		velocity.x = move_toward(velocity.x, 0, SPEED)
@@ -130,6 +143,18 @@ func _physics_process(delta: float) -> void:
 			_do_shoot()
 
 	move_and_slide()
+
+# helper to mirror muzzle transform
+func _update_muzzle_flip(flipped: bool) -> void:
+	if not _muzzle or not (_muzzle is Node2D):
+		return
+	var m := _muzzle as Node2D
+	# mirror local X offset using the recorded original offset (avoids cumulative multiplications)
+	m.position.x = _muzzle_offset.x * ( -1 if flipped else 1 )
+	# mirror rotation so muzzle angle looks mirrored when flipped
+	m.rotation = _muzzle_original_rotation * ( -1 if flipped else 1 )
+	# ensure scale magnitude is preserved and sign follows flip
+	m.scale.x = _muzzle_scale_abs * ( -1 if flipped else 1 )
 
 func _do_shoot() -> void:
 	_shoot_timer = shoot_cooldown

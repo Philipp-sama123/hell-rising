@@ -15,14 +15,21 @@ class_name player
 @export var PRE_AIM_FRAME_COUNT: int = 5
 
 enum {
-	STATE_IDLE, STATE_WALK, STATE_RUN, STATE_JUMP, STATE_FALL,
-	STATE_DASH, STATE_AIM, STATE_SHOOT, STATE_HIT
+	STATE_IDLE, 
+	STATE_WALK, 
+	STATE_RUN, 
+	STATE_JUMP, 
+	STATE_FALL,
+	STATE_DASH, 
+	STATE_AIM, 
+	STATE_SHOOT, 
+	STATE_HIT
 }
 
 @export var BulletScene: PackedScene
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
-@onready var muzzle: Node2D = get_node_or_null("Muzzle") as Node2D
+@onready var muzzle: Node2D = $Muzzle
 
 var state: int = STATE_IDLE
 var was_on_floor: bool = false
@@ -63,8 +70,11 @@ func _physics_process(delta: float) -> void:
 	_handle_input(delta)
 	_apply_gravity(delta)
 	_handle_horizontal()
+	
 	move_and_slide()
+	
 	_handle_landing()
+	
 	was_on_floor = is_on_floor()
 	if velocity.y >= 0: is_jumping = false
 	if shooting:
