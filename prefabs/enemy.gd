@@ -16,6 +16,14 @@ signal shoot
 @export var extra_hold_seconds: float = 2.0
 @export var default_shoot_anim_duration: float = 0.5
 
+# health + stun
+@export var health: int = 3
+@export var hit_flash_seconds: float = 2.0
+@export var stun_seconds: float = 0.4
+
+# NEW: how quickly horizontal velocity decays while stunned (pixels/sec^2-ish)
+@export var STUN_DECAY: float = 400.0
+
 # animation names (tweak to match your SpriteFrames)
 const ANIM_RUN_GUN = "RunGun"
 const ANIM_IDLE_GUN = "IdleGun"
@@ -32,6 +40,9 @@ var _shoot_timer: float = 0.0
 var _alive: bool = true
 var _is_shoot_anim: bool = false
 var _hold_timer: float = 0.0
+
+# stun timer (stops AI movement briefly when hit)
+var _stun_timer: float = 0.0
 
 # --- muzzle original transforms (for flipping)
 var _muzzle_offset: Vector2 = Vector2.ZERO
@@ -76,13 +87,27 @@ func _physics_process(delta: float) -> void:
 	if not _alive:
 		return
 
+	# stun handling (highest priority)
+	if _stun_timer > 0.0:
+		_stun_timer = max(_stun_timer - delta, 0.0)
+		# DON'T immediately zero horizontal velocity — let impulse carry it.
+		# Instead apply a decay so velocity slows smoothly while stunned.
+		velocity.x = move_toward(velocity.x, 0.0, STUN_DECAY * delta)
+
+		if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(ANIM_IDLE_GUN):
+			_play_anim(ANIM_IDLE_GUN)
+		else:
+			_play_anim(ANIM_IDLE)
+		move_and_slide()
+		return
+
 	# timers
 	if _shoot_timer > 0.0:
 		_shoot_timer = max(_shoot_timer - delta, 0.0)
 
 	if _hold_timer > 0.0:
 		_hold_timer = max(_hold_timer - delta, 0.0)
-		velocity.x = 0
+		velocity.x = move_toward(velocity.x, 0.0, SPEED)
 		if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(ANIM_IDLE_GUN):
 			_play_anim(ANIM_IDLE_GUN)
 		else:
@@ -214,11 +239,42 @@ func _do_shoot() -> void:
 		elif "velocity" in b:
 			b.velocity = dir * bullet_speed
 
+		# optional: listen to bullet hit/died if you want (example)
+		# if b.has_signal("hit"):
+		#     b.connect("hit", Callable(self, "_on_bullet_hit"))
+
 	emit_signal("shoot", self, _player.global_position)
 
 # -------------------------
 func take_damage(amount: int = 1) -> void:
-	_die()
+	# apply health
+	health -= amount
+
+	# small stun and 2s red flash (non-blocking)
+	_stun_timer = stun_seconds
+
+	# set sprite red tint
+	if animated_sprite:
+		animated_sprite.modulate = Color(1.0, 0.5, 0.5)
+
+	# restore color after hit_flash_seconds (non-blocking)
+	_call_restore_color(hit_flash_seconds)
+
+	# NOTE: don't zero out velocity here — let add_impulse control knockback so the impulse isn't canceled.
+	# if you call take_damage without an impulse and want the enemy to stop, you can still explicitly set velocity = Vector2.ZERO before/after calling take_damage.
+
+	if health <= 0:
+		_die()
+
+# helper that runs the delayed restore (keeps take_damage synchronous)
+func _call_restore_color(delay_time: float) -> void:
+	# start a one-shot timer and restore modulate on timeout without blocking
+	var t = get_tree().create_timer(delay_time)
+	t.timeout.connect(Callable(self, "_on_flash_timeout"))
+
+func _on_flash_timeout() -> void:
+	if animated_sprite:
+		animated_sprite.modulate = Color(1, 1, 1)
 
 func _die() -> void:
 	_alive = false
@@ -250,3 +306,12 @@ func _play_anim(name: String) -> void:
 		return
 	if animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(name):
 		animated_sprite.play(name)
+		
+func add_impulse(impulse: Vector2) -> void:
+	# Set horizontal velocity to the impulse (prevents stacking) and start stun.
+	# Also optionally accept vertical impulse if provided.
+	velocity.x = impulse.x
+	# if caller wants vertical knockback, they can pass impulse.y != 0
+	if abs(impulse.y) > 0.0:
+		velocity.y = impulse.y
+	_stun_timer = stun_seconds

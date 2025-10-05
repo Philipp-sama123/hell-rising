@@ -14,6 +14,9 @@ class_name player
 @export var HOLD_GRAVITY_MULT: float = 0.25
 @export var PRE_AIM_FRAME_COUNT: int = 5
 
+# how long input is blocked after receiving an impulse/hit
+@export var HIT_STUN_TIME: float = 0.18
+
 enum {
 	STATE_IDLE, 
 	STATE_WALK, 
@@ -23,7 +26,6 @@ enum {
 	STATE_DASH, 
 	STATE_AIM, 
 	STATE_SHOOT, 
-	STATE_HIT
 }
 
 @export var BulletScene: PackedScene
@@ -31,6 +33,7 @@ enum {
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var muzzle: Node2D = $Muzzle
 
+# runtime/state
 var state: int = STATE_IDLE
 var was_on_floor: bool = false
 var is_dashing: bool = false
@@ -59,12 +62,22 @@ var _shot_fired_in_animation: bool = false
 var _muzzle_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_base_scale: Vector2 = Vector2.ONE
 
+# internal timer node for hit stun (restartable)
+var _hit_timer: Timer = null
+
 func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
 	if muzzle:
 		_muzzle_base_offset = Vector2(abs(muzzle.position.x), muzzle.position.y)
 		_muzzle_base_scale = muzzle.scale.abs()
+
+	# create a timer used to control hit/stun duration (restartable)
+	_hit_timer = Timer.new()
+	_hit_timer.one_shot = true
+	add_child(_hit_timer)
+	_hit_timer.wait_time = HIT_STUN_TIME
+	_hit_timer.connect("timeout", Callable(self, "_on_hit_recovered"))
 
 func _physics_process(delta: float) -> void:
 	_handle_input(delta)
@@ -84,6 +97,7 @@ func _physics_process(delta: float) -> void:
 	if aiming and not (is_dashing or is_hit or shooting or pre_aiming): _change_state(STATE_AIM)
 
 func _handle_input(delta: float) -> void:
+	# input is still processed, but _handle_horizontal respects is_hit and won't override velocity while stunned
 	var dir := int(Input.get_axis("Left", "Right"))
 	if dir != 0: facing_dir = dir
 	if animated_sprite: animated_sprite.flip_h = facing_dir > 0
@@ -145,6 +159,7 @@ func _apply_gravity(delta: float) -> void:
 			if velocity.y >= 0 or not jump_held: jump_hold_timer = 0
 
 func _handle_horizontal() -> void:
+	# if is_hit is true, we block horizontal input (so impulses are not overridden)
 	if not is_dashing and not is_hit:
 		var dir := int(Input.get_axis("Left", "Right"))
 		var is_running := Input.is_action_pressed("Run")
@@ -198,7 +213,6 @@ func _change_state(new_state: int) -> void:
 			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
 				animated_sprite.play("Shoot"); return
 			_play_anim_with_aim(bm)
-		STATE_HIT: _play_anim_with_aim("Hit")
 
 func _get_motion_name_from_velocity() -> String:
 	var abs_vx = abs(velocity.x)
@@ -240,9 +254,15 @@ func _on_frame_changed() -> void:
 		_shot_fired_in_animation = true
 		_spawn_bullet()
 
-func take_damage() -> void:
-	if is_dashing: return
-	_change_state(STATE_HIT); is_hit = true; velocity.x = 0; pre_aiming = false; print("Take DAMAGE!!")
+func take_damage(damage) -> void:
+	# generic damage hook: start a short stun so other damage sources also block input briefly
+	velocity.x = 0
+	pre_aiming = false
+	is_hit = true
+	# restart the hit timer (so multiple damages extend the stun)
+	if _hit_timer:
+		_hit_timer.start(HIT_STUN_TIME)
+	print("Take DAMAGE!!", damage)
 
 func _spawn_bullet() -> void:
 	if not BulletScene:
@@ -266,3 +286,25 @@ func _update_muzzle_transform() -> void:
 	muzzle.position.y = _muzzle_base_offset.y
 	muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
 	muzzle.scale.y = _muzzle_base_scale.y
+
+func add_impulse(impulse: Vector2) -> void:
+	# Set horizontal velocity to the impulse (prevents stacking) and enter hit stun.
+	velocity.x = impulse.x
+	is_hit = true
+	if _hit_timer:
+		_hit_timer.start(HIT_STUN_TIME)
+
+func _on_hit_recovered() -> void:
+	# called when hit stun timer ends
+	is_hit = false
+	# restore a reasonable state after stun
+	if shooting:
+		_change_state(STATE_SHOOT)
+	elif aiming:
+		_change_state(STATE_AIM)
+	else:
+		if is_on_floor():
+			var abs_vx = abs(velocity.x)
+			_change_state(STATE_IDLE if abs_vx == 0 else (STATE_RUN if abs_vx > WALK_SPEED else STATE_WALK))
+		else:
+			_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)

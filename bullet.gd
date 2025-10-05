@@ -1,6 +1,6 @@
 extends Area2D
 
-signal hit(target)
+signal hit(target, damage)
 signal died()
 
 @export var speed: float = 200.0
@@ -8,7 +8,7 @@ signal died()
 @export var lifetime: float = 4.0
 @export var collision_ignore_owner: bool = true
 @export var sprite_faces_right: bool = false
-
+@export var knockback_strength: float = 150.0
 # runtime
 var velocity: Vector2 = Vector2.ZERO
 var owner_id: int = 0
@@ -40,12 +40,13 @@ func _physics_process(delta: float) -> void:
 	global_position += velocity * delta
 	
 	if anim and abs(velocity.x) > 0.1:
-			if sprite_faces_right:
-				# art faces right by default -> flip when moving left
-				anim.flip_h = velocity.x < 0.0
-			else:
-				# art faces left by default -> flip when moving right
-				anim.flip_h = velocity.x > 0.0
+		if sprite_faces_right:
+			# art faces right by default -> flip when moving left
+			anim.flip_h = velocity.x < 0.0
+		else:
+			# art faces left by default -> flip when moving right
+			anim.flip_h = velocity.x > 0.0
+
 # Setters (public API used by spawn code)
 func set_velocity(v: Vector2) -> void:
 	velocity = v
@@ -72,8 +73,36 @@ func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("bullet"):
 		return
 
-	# deliver damage via signal (the caller can handle how to apply damage)
-	emit_signal("hit", body)
+	# --- APPLY DAMAGE ----
+	var applied := false
+
+	# prefer explicit methods
+	if body and body.has_method("take_damage"):
+		body.take_damage(damage)
+		applied = true
+	elif body and body.has_method("apply_damage"):
+		body.apply_damage(damage)
+		applied = true
+	# fallback: try reducing a health property directly (careful with encapsulation)
+	elif body and "health" in body:
+		body.health = max(0, int(body.health) - int(damage))
+		applied = true
+
+	# notify listeners and include damage amount
+	emit_signal("hit", body, damage)
+
+	if applied and body is CharacterBody2D:
+		# compute horizontal direction only (1 = to right, -1 = to left)
+		var dir_x = sign(body.global_position.x - global_position.x)
+		if dir_x == 0:
+			# fallback: if perfectly aligned, push away to the right
+			dir_x = 1
+		var kb_x = dir_x * knockback_strength
+
+		# prefer a method if provided (pass a vector but only set X)
+		if body.has_method("add_impulse"):
+			print("add_impulse")
+			body.call("add_impulse", Vector2(kb_x, 0))
 
 	_explode()
 

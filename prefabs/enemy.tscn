@@ -394,3 +394,4 @@ frame_progress = 1.0
 
 [node name="Muzzle" type="Node2D" parent="."]
 position = Vector2(-25, 0)
+metadata/_edit_group_ = true

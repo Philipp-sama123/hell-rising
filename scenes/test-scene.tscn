@@ -771,3 +771,30 @@ stop_max = 200.0
 bullet_speed = 100.0
 player_path = NodePath("../Player")
 bullet_scene = ExtResource("5_81352")
+
+[node name="Enemy2" parent="." instance=ExtResource("2_4n1no")]
+position = Vector2(390, -12.000001)
+scale = Vector2(1, 0.9918139)
+stop_min = 100.0
+stop_max = 200.0
+bullet_speed = 100.0
+player_path = NodePath("../Player")
+bullet_scene = ExtResource("5_81352")
+
+[node name="Enemy3" parent="." instance=ExtResource("2_4n1no")]
+position = Vector2(342, -163)
+scale = Vector2(1, 0.9918139)
+stop_min = 100.0
+stop_max = 200.0
+bullet_speed = 100.0
+player_path = NodePath("../Player")
+bullet_scene = ExtResource("5_81352")
+
+[node name="Enemy4" parent="." instance=ExtResource("2_4n1no")]
+position = Vector2(436, -163)
+scale = Vector2(1, 0.9918139)
+stop_min = 100.0
+stop_max = 200.0
+bullet_speed = 100.0
+player_path = NodePath("../Player")
+bullet_scene = ExtResource("5_81352")
