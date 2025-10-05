@@ -14,8 +14,7 @@ class_name player
 @export var HOLD_GRAVITY_MULT: float = 0.25
 @export var PRE_AIM_FRAME_COUNT: int = 5
 
-# how long input is blocked after receiving an impulse/hit
-@export var HIT_STUN_TIME: float = 0.18
+@export var HIT_STUN_TIME: float = 0.25
 
 enum {
 	STATE_IDLE, 
@@ -257,8 +256,6 @@ func _on_frame_changed() -> void:
 func take_damage(damage) -> void:
 	if is_dashing: return
 	
-	# generic damage hook: start a short stun so other damage sources also block input briefly
-	velocity.x = 0
 	pre_aiming = false
 	is_hit = true
 	# restart the hit timer (so multiple damages extend the stun)
@@ -291,7 +288,6 @@ func _update_muzzle_transform() -> void:
 	muzzle.scale.y = _muzzle_base_scale.y
 
 func add_impulse(impulse: Vector2) -> void:
-	# Set horizontal velocity to the impulse (prevents stacking) and enter hit stun.
 	if is_dashing: return
 	
 	velocity.x = impulse.x
