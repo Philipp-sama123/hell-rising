@@ -7,7 +7,7 @@ signal shoot                  # emitted when firing (useful if you don't use bul
 @export var stop_min: float = 10.0
 @export var stop_max: float = 50.0
 @export var shoot_cooldown: float = 1.0     # seconds between shots
-@export var bullet_speed: float = 800.0
+@export var bullet_speed: float = 300.0
 @export var muzzle_node_path: NodePath = NodePath("Muzzle")
 @export var player_path: NodePath = NodePath()   # set in inspector if you want (optional)
 @export var bullet_scene: PackedScene         # optional: assign your bullet PackedScene in inspector

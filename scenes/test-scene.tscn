@@ -752,10 +752,11 @@ sources/1 = SubResource("TileSetAtlasSource_81352")
 [node name="TestScene" type="Node2D"]
 
 [node name="Player" parent="." instance=ExtResource("1_g2w4a")]
+position = Vector2(0, 8)
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
 offset = Vector2(0, -50)
-zoom = Vector2(3, 3)
+zoom = Vector2(2.5, 2.5)
 
 [node name="TileMapLayer" type="TileMapLayer" parent="."]
 texture_filter = 1
@@ -765,7 +766,8 @@ tile_set = SubResource("TileSet_oktae")
 [node name="Enemy" parent="." instance=ExtResource("2_4n1no")]
 position = Vector2(161, -12.000001)
 scale = Vector2(1, 0.9918139)
-stop_min = 50.0
-stop_max = 100.0
+stop_min = 100.0
+stop_max = 200.0
+bullet_speed = 100.0
 player_path = NodePath("../Player")
 bullet_scene = ExtResource("5_81352")
