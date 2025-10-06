@@ -1,10 +1,11 @@
-[gd_scene load_steps=9 format=4 uid="uid://q2pbkjb8tvgi"]
+[gd_scene load_steps=10 format=4 uid="uid://q2pbkjb8tvgi"]
 
 [ext_resource type="PackedScene" uid="uid://c2ifcpfan6bo0" path="res://prefabs/player.tscn" id="1_g2w4a"]
 [ext_resource type="PackedScene" uid="uid://c4defk3ep2ptl" path="res://prefabs/enemy.tscn" id="2_4n1no"]
 [ext_resource type="Texture2D" uid="uid://dxk8s1p56n1fw" path="res://assets/HellAssetPack/GandalfHardcore Hell Tiles 32x32 dark.png" id="2_q7s53"]
 [ext_resource type="Texture2D" uid="uid://cxbi41cm163c7" path="res://assets/HellAssetPack/GandalfHardcore Hell Tiles 32x32.png" id="3_oktae"]
 [ext_resource type="PackedScene" uid="uid://q0m48l7bqx61" path="res://prefabs/bullet.tscn" id="5_81352"]
+[ext_resource type="PackedScene" uid="uid://btqpbcucfknho" path="res://prefabs/zombie.tscn" id="6_1gmwy"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4n1no"]
 texture = ExtResource("2_q7s53")
@@ -817,3 +818,23 @@ stop_max = 200.0
 bullet_speed = 100.0
 player_path = NodePath("../Player")
 bullet_scene = ExtResource("5_81352")
+
+[node name="Zombie" parent="." instance=ExtResource("6_1gmwy")]
+position = Vector2(69, -43)
+SPEED = 20.0
+stop_min = 5.0
+stop_max = 20.0
+attack_hit_window = 0.1
+attack_range = 20.0
+attack_pause = 1.0
+player_path = NodePath("../Player")
+
+[node name="Zombie2" parent="." instance=ExtResource("6_1gmwy")]
+position = Vector2(-285, 83)
+SPEED = 20.0
+stop_min = 0.0
+stop_max = 20.0
+attack_hit_window = 0.1
+attack_range = 20.0
+attack_pause = 1.0
+player_path = NodePath("../Player")
