@@ -822,19 +822,9 @@ bullet_scene = ExtResource("5_81352")
 [node name="Zombie" parent="." instance=ExtResource("6_1gmwy")]
 position = Vector2(69, -43)
 SPEED = 20.0
-stop_min = 5.0
-stop_max = 20.0
-attack_hit_window = 0.1
-attack_range = 20.0
-attack_pause = 1.0
 player_path = NodePath("../Player")
 
 [node name="Zombie2" parent="." instance=ExtResource("6_1gmwy")]
 position = Vector2(-285, 83)
 SPEED = 20.0
-stop_min = 0.0
-stop_max = 20.0
-attack_hit_window = 0.1
-attack_range = 20.0
-attack_pause = 1.0
 player_path = NodePath("../Player")
