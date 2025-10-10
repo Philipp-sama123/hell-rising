@@ -230,6 +230,7 @@ texture_filter = 1
 collision_layer = 4
 collision_mask = 9
 script = ExtResource("1_cyigu")
+SPEED = 15.0
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, 12)

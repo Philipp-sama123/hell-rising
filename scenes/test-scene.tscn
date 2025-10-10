@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=4 uid="uid://q2pbkjb8tvgi"]
+[gd_scene load_steps=12 format=4 uid="uid://q2pbkjb8tvgi"]
 
 [ext_resource type="PackedScene" uid="uid://c2ifcpfan6bo0" path="res://prefabs/player.tscn" id="1_g2w4a"]
 [ext_resource type="PackedScene" uid="uid://c4defk3ep2ptl" path="res://prefabs/enemy.tscn" id="2_4n1no"]
@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" uid="uid://q0m48l7bqx61" path="res://prefabs/bullet.tscn" id="5_81352"]
 [ext_resource type="PackedScene" uid="uid://btqpbcucfknho" path="res://prefabs/zombie.tscn" id="6_1gmwy"]
 [ext_resource type="PackedScene" uid="uid://yeagb0utkcb2" path="res://prefabs/zombie_male.tscn" id="7_wh0gb"]
+[ext_resource type="PackedScene" uid="uid://dc4malewgjj5a" path="res://prefabs/enemy_fly.tscn" id="8_pyd17"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4n1no"]
 texture = ExtResource("2_q7s53")
@@ -836,4 +837,24 @@ player_path = NodePath("../Player")
 
 [node name="Zombie4" parent="." instance=ExtResource("7_wh0gb")]
 position = Vector2(-87, -9)
+player_path = NodePath("../Player")
+
+[node name="EnemyFly" parent="." instance=ExtResource("8_pyd17")]
+position = Vector2(-59, -215)
+player_path = NodePath("../Player")
+
+[node name="EnemyFly3" parent="." instance=ExtResource("8_pyd17")]
+position = Vector2(161, -127)
+player_path = NodePath("../Player")
+
+[node name="EnemyFly4" parent="." instance=ExtResource("8_pyd17")]
+position = Vector2(-214, -213)
+player_path = NodePath("../Player")
+
+[node name="EnemyFly5" parent="." instance=ExtResource("8_pyd17")]
+position = Vector2(96, -214)
+player_path = NodePath("../Player")
+
+[node name="EnemyFly2" parent="." instance=ExtResource("8_pyd17")]
+position = Vector2(-304, 23)
 player_path = NodePath("../Player")

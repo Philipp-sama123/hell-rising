@@ -1,0 +1,111 @@
+[gd_scene load_steps=16 format=3 uid="uid://dc4malewgjj5a"]
+
+[ext_resource type="Script" uid="uid://vesfkydy4u34" path="res://prefabs/exploding_enemy.gd" id="1_n70go"]
+[ext_resource type="Texture2D" uid="uid://e15348gqavrh" path="res://assets/HellAssetPack/GandalfHardcore The Damned Enemies and NPCs/Plague Flies.png" id="1_wmo5k"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_n70go"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(128, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_2vpqe"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(0, 32, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_2nhui"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(32, 32, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_cdwkl"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(64, 32, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_yujv4"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(96, 32, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_kb3nv"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(128, 32, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ptgbh"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(0, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_4u8pe"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(32, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_2gqki"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(64, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_3rs83"]
+atlas = ExtResource("1_wmo5k")
+region = Rect2(96, 0, 32, 32)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_vqhcy"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_n70go")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_2vpqe")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_2nhui")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_cdwkl")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_yujv4")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_kb3nv")
+}],
+"loop": false,
+"name": &"Explode",
+"speed": 12.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ptgbh")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_4u8pe")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_2gqki")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_3rs83")
+}],
+"loop": true,
+"name": &"Fly",
+"speed": 12.0
+}]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_5cnl5"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_n70go"]
+radius = 20.024984
+
+[node name="EnemyFly" type="CharacterBody2D"]
+motion_mode = 1
+script = ExtResource("1_n70go")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+texture_filter = 1
+sprite_frames = SubResource("SpriteFrames_vqhcy")
+animation = &"Explode"
+frame = 5
+frame_progress = 1.0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_5cnl5")
+
+[node name="Area2D" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+shape = SubResource("CircleShape2D_n70go")
