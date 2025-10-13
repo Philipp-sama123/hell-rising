@@ -30,16 +30,14 @@ var _stun_timer: float = 0.0
 var _alive: bool = true
 
 func _ready() -> void:
-	# find player (explicit path -> node named Player -> group 'player')
+	# prefer explicit player_path, otherwise search the "player" group
 	if player_path != NodePath():
 		_player = get_node_or_null(player_path)
 	if not _player:
-		_player = get_tree().get_root().find_node("Player", true, false) \
-				  or get_tree().get_root().find_node("player", true, false)
-	if not _player:
-		var c = get_tree().get_nodes_in_group("player")
-		if c.size() > 0:
-			_player = c[0]
+		var players = get_tree().get_nodes_in_group("player")
+		if players.size() > 0:
+			_player = players[0]
+	# helpful debug when player still missing
 	if not _player:
 		printerr("Enemy: couldn't find player. Set player_path or add player to 'player' group.")
 
@@ -58,6 +56,7 @@ func _physics_process(delta: float) -> void:
 	if not _alive:
 		return
 
+	# stun handling
 	if _stun_timer > 0.0:
 		_stun_timer = max(_stun_timer - delta, 0.0)
 
@@ -66,10 +65,10 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 
-	# timers for attack lifecycle
+	# timers for attack lifecycle (use <= 0.0 for robustness)
 	if _attack_timer > 0.0:
 		_attack_timer = max(_attack_timer - delta, 0.0)
-		if _attack_timer == 0.0:
+		if _attack_timer <= 0.0:
 			# attack finished -> disable damage and go to idle cooldown
 			_attacking = false
 			_disable_damage_area()
@@ -98,7 +97,7 @@ func _physics_process(delta: float) -> void:
 		animated_sprite.flip_h = (player_left != sprite_faces_right)
 
 	# behavior: attack if close (and not already attacking/cooling), otherwise chase
-	if dist <= attack_distance and _attack_timer == 0.0 and _cooldown_timer == 0.0:
+	if dist <= attack_distance and _attack_timer <= 0.0 and _cooldown_timer <= 0.0:
 		_start_attack()
 	elif dist > attack_distance:
 		# chase
@@ -134,29 +133,42 @@ func _on_damage_area_body_entered(body: Node) -> void:
 	var is_player_body := body == _player or (body.has_method("is_in_group") and body.is_in_group("player"))
 	if not is_player_body:
 		return
-	# apply damage if possible
+
+	# prefer single-call API: take_damage(amount, source_pos, knockback_strength)
 	if body.has_method("take_damage"):
-		body.take_damage(attack_damage)
-	# try to apply knockback to player (x-axis only)
-	if body.has_method("add_impulse"):
-		var kb_dir_x = sign(body.global_position.x - global_position.x)
-		if kb_dir_x == 0:
-			kb_dir_x = 1
-		body.add_impulse(Vector2(kb_dir_x * player_kb_strength, 0))
+		# pass enemy global_position so the target can compute direction
+		body.call("take_damage", attack_damage, global_position, player_kb_strength)
+	else:
+		# fallback: apply damage via other methods/properties
+		if body.has_method("apply_damage"):
+			body.call("apply_damage", attack_damage)
+		elif "health" in body:
+			body.health = max(0, int(body.health) - int(attack_damage))
+
+		# if the fallback target is a CharacterBody2D and supports impulses, apply knockback once
+		if body is CharacterBody2D and body.has_method("add_impulse"):
+			var kb_dir_x = sign(body.global_position.x - global_position.x)
+			if kb_dir_x == 0:
+				kb_dir_x = 1
+			body.call("add_impulse", Vector2(kb_dir_x * player_kb_strength, 0))
 
 
 # --- enemy takes damage: reduces health, stuns, flashes and gets knocked back (x-only) ---
-func take_damage(amount: int = 1, source_pos: Vector2 = Vector2.ZERO) -> void:
+# unified: amount, source_pos (to compute direction), optional knockback_strength to override default kb_strength
+func take_damage(amount: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback_strength: float = -1.0) -> void:
 	if not _alive:
 		return
+
 	health -= amount
+
 	# apply stun and visual flash
 	_stun_timer = stun_seconds
 	if animated_sprite:
 		animated_sprite.modulate = Color(1.0, 0.5, 0.5)
 	var t = get_tree().create_timer(hit_flash_seconds)
 	t.timeout.connect(Callable(self, "_restore_color"))
-	# apply horizontal-only knockback to this enemy (preserve vertical velocity)
+
+	# compute horizontal-only knockback to this enemy (preserve vertical velocity)
 	var dir_x: float = 0.0
 	if source_pos != Vector2.ZERO:
 		dir_x = sign(global_position.x - source_pos.x)
@@ -168,7 +180,9 @@ func take_damage(amount: int = 1, source_pos: Vector2 = Vector2.ZERO) -> void:
 			dir_x = -1
 		else:
 			dir_x = 1
-	velocity.x = dir_x * kb_strength
+
+	var used_kb =  knockback_strength if (knockback_strength > 0.0) else kb_strength
+	velocity.x = dir_x * used_kb
 
 	# if dead now, play death
 	if health <= 0:
@@ -195,11 +209,10 @@ func _on_anim_finished() -> void:
 		queue_free()
 
 
-# safe animation play helper
-func _play(name: String) -> void:
+func _play(_name: String) -> void:
 	if not animated_sprite:
 		return
-	if animated_sprite.animation == name:
+	if animated_sprite.animation == _name:
 		return
-	if animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(name):
-		animated_sprite.play(name)
+	if animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(_name):
+		animated_sprite.play(_name)

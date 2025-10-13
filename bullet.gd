@@ -73,36 +73,12 @@ func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("bullet"):
 		return
 
-	# --- APPLY DAMAGE ----
-	var applied := false
-
 	# prefer explicit methods
 	if body and body.has_method("take_damage"):
-		body.take_damage(damage)
-		applied = true
-	elif body and body.has_method("apply_damage"):
-		body.apply_damage(damage)
-		applied = true
-	# fallback: try reducing a health property directly (careful with encapsulation)
-	elif body and "health" in body:
-		body.health = max(0, int(body.health) - int(damage))
-		applied = true
-
+		body.take_damage(damage, global_position, knockback_strength)
+		
 	# notify listeners and include damage amount
 	emit_signal("hit", body, damage)
-
-	if applied and body is CharacterBody2D:
-		# compute horizontal direction only (1 = to right, -1 = to left)
-		var dir_x = sign(body.global_position.x - global_position.x)
-		if dir_x == 0:
-			# fallback: if perfectly aligned, push away to the right
-			dir_x = 1
-		var kb_x = dir_x * knockback_strength
-
-		# prefer a method if provided (pass a vector but only set X)
-		if body.has_method("add_impulse"):
-			print("add_impulse")
-			body.call("add_impulse", Vector2(kb_x, 0))
 
 	_explode()
 

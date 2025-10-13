@@ -223,8 +223,6 @@ shape = SubResource("CapsuleShape2D_yfjof")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_3am1j")
-animation = &"Walk"
-frame_progress = 0.51570725
 
 [node name="Muzzle" type="Node2D" parent="."]
 position = Vector2(-25, 0)

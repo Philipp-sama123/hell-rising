@@ -15,16 +15,17 @@ class_name player
 @export var PRE_AIM_FRAME_COUNT: int = 5
 
 @export var HIT_STUN_TIME: float = 0.25
+@export var hit_kb_strength: float = 150.0   # <-- NEW: default horizontal knockback when source_pos is provided
 
 enum {
-	STATE_IDLE, 
-	STATE_WALK, 
-	STATE_RUN, 
-	STATE_JUMP, 
+	STATE_IDLE,
+	STATE_WALK,
+	STATE_RUN,
+	STATE_JUMP,
 	STATE_FALL,
-	STATE_DASH, 
-	STATE_AIM, 
-	STATE_SHOOT, 
+	STATE_DASH,
+	STATE_AIM,
+	STATE_SHOOT,
 }
 
 @export var BulletScene: PackedScene
@@ -252,17 +253,45 @@ func _on_frame_changed() -> void:
 	if shooting and anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
 		_shot_fired_in_animation = true
 		_spawn_bullet()
+		
 
-func take_damage(damage) -> void:
-	if is_dashing: return
-	
+func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback_strength: float = -1.0) -> void:
+	if is_dashing:
+		return
+
 	pre_aiming = false
 	is_hit = true
-	# restart the hit timer (so multiple damages extend the stun)
 	if _hit_timer:
 		_hit_timer.start(HIT_STUN_TIME)
-	print("Take DAMAGE!!", damage)
 
+	if animated_sprite:
+		animated_sprite.modulate = Color(1.0, 0.5, 0.5)
+		var t = get_tree().create_timer(HIT_STUN_TIME)
+		t.timeout.connect(Callable(self, "_restore_color"))
+
+	var dir_x: int = 0
+	if source_pos != Vector2.ZERO:
+		dir_x = int(sign(global_position.x - source_pos.x))
+		if dir_x == 0:
+			if abs(velocity.x) > 0.1:
+				dir_x = int(sign(velocity.x))
+			else:
+				dir_x = -facing_dir
+	else:
+		if abs(velocity.x) > 0.1:
+			dir_x = int(sign(velocity.x))
+		else:
+			dir_x = -facing_dir
+
+	if dir_x == 0:
+		dir_x = 1
+
+	var used_kb = knockback_strength if knockback_strength > 0.0 else hit_kb_strength
+	velocity.x = dir_x * used_kb
+
+	print("[take_damage] src:", source_pos, " player:", global_position, " dir_x:", dir_x, " kb:", used_kb, " vel.x:", velocity.x)
+
+	
 func _spawn_bullet() -> void:
 	if not BulletScene:
 		print_debug("BulletScene not assigned; cannot spawn bullet."); return
@@ -287,18 +316,8 @@ func _update_muzzle_transform() -> void:
 	muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
 	muzzle.scale.y = _muzzle_base_scale.y
 
-func add_impulse(impulse: Vector2) -> void:
-	if is_dashing: return
-	
-	velocity.x = impulse.x
-	is_hit = true
-	if _hit_timer:
-		_hit_timer.start(HIT_STUN_TIME)
-
 func _on_hit_recovered() -> void:
-	# called when hit stun timer ends
 	is_hit = false
-	# restore a reasonable state after stun
 	if shooting:
 		_change_state(STATE_SHOOT)
 	elif aiming:
@@ -309,3 +328,8 @@ func _on_hit_recovered() -> void:
 			_change_state(STATE_IDLE if abs_vx == 0 else (STATE_RUN if abs_vx > WALK_SPEED else STATE_WALK))
 		else:
 			_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
+
+# restore sprite color after a short flash
+func _restore_color() -> void:
+	if animated_sprite:
+		animated_sprite.modulate = Color(1, 1, 1)

@@ -89,23 +89,24 @@ animations = [{
 [sub_resource type="CircleShape2D" id="CircleShape2D_5cnl5"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_n70go"]
-radius = 20.024984
+radius = 15.033297
 
 [node name="EnemyFly" type="CharacterBody2D"]
+collision_layer = 4
 motion_mode = 1
 script = ExtResource("1_n70go")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_vqhcy")
-animation = &"Explode"
-frame = 5
-frame_progress = 1.0
+animation = &"Fly"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("CircleShape2D_5cnl5")
 
-[node name="Area2D" type="Area2D" parent="."]
+[node name="ExplosionArea" type="Area2D" parent="."]
+collision_layer = 4
+collision_mask = 3
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="ExplosionArea"]
 shape = SubResource("CircleShape2D_n70go")

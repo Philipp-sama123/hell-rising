@@ -18,13 +18,16 @@ signal shoot
 
 # health + stun
 @export var health: int = 3
-@export var hit_flash_seconds: float = 0.5
 @export var stun_seconds: float = 0.5
 @export var STUN_DECAY: float = 400.0
 
+@export var kb_strength: float = 150.0
+
+# debug toggle
+@export var debug_hits: bool = false
+
 var _stun_timer: float = 0.0
 
-# animation names (tweak to match your SpriteFrames)
 const ANIM_RUN_GUN = "RunGun"
 const ANIM_IDLE_GUN = "IdleGun"
 const ANIM_RUN = "Run"
@@ -32,7 +35,6 @@ const ANIM_IDLE = "Idle"
 const ANIM_SHOOT = "Shoot"
 const ANIM_EXPLODE = "Explode"
 
-# runtime
 var _player: Node = null
 var _muzzle: Node2D = null
 var _stop_distance: float = 20.0
@@ -41,8 +43,6 @@ var _alive: bool = true
 var _is_shoot_anim: bool = false
 var _hold_timer: float = 0.0
 
-
-# --- muzzle original transforms (for flipping)
 var _muzzle_offset: Vector2 = Vector2.ZERO
 var _muzzle_original_rotation: float = 0.0
 var _muzzle_scale_abs: float = 1.0
@@ -79,6 +79,7 @@ func _ready() -> void:
 
 	if animated_sprite:
 		animated_sprite.animation_finished.connect(_on_anim_finished)
+
 
 func _physics_process(delta: float) -> void:
 	if not _alive:
@@ -166,6 +167,7 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 
+
 func _update_muzzle_flip(flipped: bool) -> void:
 	if not _muzzle or not (_muzzle is Node2D):
 		return
@@ -174,6 +176,7 @@ func _update_muzzle_flip(flipped: bool) -> void:
 	m.position.x = _muzzle_offset.x * ( -1 if flipped else 1 )
 	m.rotation = _muzzle_original_rotation * ( -1 if flipped else 1 )
 	m.scale.x = _muzzle_scale_abs * ( -1 if flipped else 1 )
+
 
 func _do_shoot() -> void:
 	_shoot_timer = shoot_cooldown
@@ -235,29 +238,68 @@ func _do_shoot() -> void:
 
 	emit_signal("shoot", self, _player.global_position)
 
+
 # -------------------------
-func take_damage(amount: int = 1) -> void:
+# unified damage + knockback for the turret
+# amount: damage amount
+# source_pos: origin of the attack (pass projectile.global_position or attacker.global_position)
+# knockback_strength: optional explicit horizontal knockback magnitude; if <= 0 uses kb_strength
+func take_damage(amount: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback_strength: float = -1.0) -> void:
+	if not _alive:
+		return
+
 	# apply health
 	health -= amount
+
+	# restart stun
 	_stun_timer = stun_seconds
 
-	# set sprite red tint
+	# set sprite red tint and schedule restore
 	if animated_sprite:
 		animated_sprite.modulate = Color(1.0, 0.5, 0.5)
+	_call_restore_color(stun_seconds)
 
-	# restore color after hit_flash_seconds (non-blocking)
-	_call_restore_color(hit_flash_seconds)
-	
+	# compute horizontal-only knockback to push AWAY from source_pos
+	var dir_x: int = 0
+	if source_pos != Vector2.ZERO:
+		dir_x = int(sign(global_position.x - source_pos.x))
+		# fallback when exactly aligned
+		if dir_x == 0:
+			if abs(velocity.x) > 0.1:
+				dir_x = int(sign(velocity.x))
+			else:
+				# push away to the right by default
+				dir_x = 1
+	else:
+		# no source provided: try to use current motion as hint, else push right
+		if abs(velocity.x) > 0.1:
+			dir_x = int(sign(velocity.x))
+		else:
+			dir_x = 1
+
+	# safety
+	if dir_x == 0:
+		dir_x = 1
+
+	var used_kb = knockback_strength if knockback_strength > 0.0 else kb_strength
+	velocity.x = dir_x * used_kb
+
+	if debug_hits:
+		print("[turret.take_damage] src:", source_pos, " self:", global_position, " dir_x:", dir_x, " kb:", used_kb, " vel.x:", velocity.x)
+
 	if health <= 0:
 		_die()
+
 
 func _call_restore_color(delay_time: float) -> void:
 	var t = get_tree().create_timer(delay_time)
 	t.timeout.connect(Callable(self, "_on_flash_timeout"))
 
+
 func _on_flash_timeout() -> void:
 	if animated_sprite:
 		animated_sprite.modulate = Color(1, 1, 1)
+
 
 func _die() -> void:
 	_alive = false
@@ -266,6 +308,7 @@ func _die() -> void:
 		animated_sprite.play(ANIM_EXPLODE)
 	else:
 		queue_free()
+
 
 func _on_anim_finished() -> void:
 	var a = animated_sprite.animation
@@ -280,19 +323,13 @@ func _on_anim_finished() -> void:
 		else:
 			animated_sprite.play(ANIM_IDLE)
 
-func _play_anim(name: String) -> void:
+
+func _play_anim(_name: String) -> void:
 	if not animated_sprite:
 		return
 	if _is_shoot_anim:
 		return
-	if animated_sprite.animation == name:
+	if animated_sprite.animation == _name:
 		return
-	if animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(name):
-		animated_sprite.play(name)
-		
-func add_impulse(impulse: Vector2) -> void:
-	velocity.x = impulse.x
-	# if caller wants vertical knockback, they can pass impulse.y != 0
-	if abs(impulse.y) > 0.0:
-		velocity.y = impulse.y
-	_stun_timer = stun_seconds
+	if animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(_name):
+		animated_sprite.play(_name)
