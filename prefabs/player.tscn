@@ -1507,18 +1507,17 @@ scale = Vector2(1, 0.9918139)
 collision_layer = 2
 collision_mask = 9
 script = ExtResource("1_4dohe")
+DASH_SPEED = 250.0
 BulletScene = ExtResource("2_r66lb")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_an77k")
 animation = &"Shoot"
-frame = 4
-frame_progress = 1.0
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, 8)
 shape = SubResource("CapsuleShape2D_7fbtx")
 
 [node name="Muzzle" type="Node2D" parent="."]
-position = Vector2(-17, -2.0165074)
+position = Vector2(-10, -2.0165074)

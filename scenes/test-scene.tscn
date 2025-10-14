@@ -777,8 +777,8 @@ sources/1 = SubResource("TileSetAtlasSource_81352")
 position = Vector2(0, 8)
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
-offset = Vector2(0, -50)
-zoom = Vector2(2.5, 2.5)
+offset = Vector2(0, -25)
+zoom = Vector2(3, 3)
 
 [node name="TileMapLayer" type="TileMapLayer" parent="."]
 texture_filter = 1

@@ -168,14 +168,15 @@ func _on_anim_finished() -> void:
 	# when the attack animation finishes, finish the attack lifecycle
 	if not animated_sprite:
 		return
-
+	# keep original die behaviour: free when Die animation finishes
+	if animated_sprite.animation == "Die":
+		queue_free()
+		return
+		
 	_attacking = false
 	_disable_damage_area()
 	_cooldown_timer = idle_after_attack
 	_play("Idle")
-	# keep original die behaviour: free when Die animation finishes
-	if animated_sprite.animation == "Die":
-		queue_free()
 
 
 func _disable_damage_area() -> void:
