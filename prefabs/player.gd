@@ -17,6 +17,9 @@ class_name player
 @export var HIT_STUN_TIME: float = 0.25
 @export var hit_kb_strength: float = 150.0   # <-- NEW: default horizontal knockback when source_pos is provided
 
+# --- slide-shoot tuning ---
+@export var SLIDE_SHOOT_COOLDOWN: float = 0.15  # seconds between slide-shots
+
 enum {
 	STATE_IDLE,
 	STATE_WALK,
@@ -65,6 +68,9 @@ var _muzzle_base_scale: Vector2 = Vector2.ONE
 # internal timer node for hit stun (restartable)
 var _hit_timer: Timer = null
 
+# slide-shoot runtime
+var _slide_shoot_cd: float = 0.0
+
 func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
@@ -80,6 +86,9 @@ func _ready() -> void:
 	_hit_timer.connect("timeout", Callable(self, "_on_hit_recovered"))
 
 func _physics_process(delta: float) -> void:
+	# tick slide-shoot cooldown
+	_slide_shoot_cd = max(0.0, _slide_shoot_cd - delta)
+
 	_handle_input(delta)
 	_apply_gravity(delta)
 	_handle_horizontal()
@@ -97,7 +106,6 @@ func _physics_process(delta: float) -> void:
 	if aiming and not (is_dashing or is_hit or shooting or pre_aiming): _change_state(STATE_AIM)
 
 func _handle_input(delta: float) -> void:
-	# input is still processed, but _handle_horizontal respects is_hit and won't override velocity while stunned
 	var dir := int(Input.get_axis("Left", "Right"))
 	if dir != 0: facing_dir = dir
 	if animated_sprite: animated_sprite.flip_h = facing_dir > 0
@@ -109,18 +117,23 @@ func _handle_input(delta: float) -> void:
 	aiming = Input.is_action_pressed("Aim")
 
 	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
-		if aiming:
-			shooting = true; _change_state(STATE_SHOOT)
+		# If we're dashing, trigger an immediate slide-shoot (does not interrupt dash)
+		if is_dashing and _slide_shoot_cd <= 0.0:
+			_do_slide_shoot()
+			_slide_shoot_cd = SLIDE_SHOOT_COOLDOWN
 		else:
-			pre_aiming = true; pre_aim_frames = PRE_AIM_FRAME_COUNT
-			var base_motion := _get_motion_name_from_velocity()
-			var aim_name := "Aim" + base_motion
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_name):
-				animated_sprite.play(aim_name)
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim"):
-				animated_sprite.play("Aim")
+			if aiming:
+				shooting = true; _change_state(STATE_SHOOT)
 			else:
-				_change_state(STATE_AIM)
+				pre_aiming = true; pre_aim_frames = PRE_AIM_FRAME_COUNT
+				var base_motion := _get_motion_name_from_velocity()
+				var aim_name := "Aim" + base_motion
+				if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_name):
+					animated_sprite.play(aim_name)
+				elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim"):
+					animated_sprite.play("Aim")
+				else:
+					_change_state(STATE_AIM)
 
 	if is_dashing or is_hit:
 		pre_aiming = false
@@ -248,7 +261,6 @@ func _on_frame_changed() -> void:
 		if pre_aim_frames <= 0:
 			pre_aiming = false; shooting = true; _change_state(STATE_SHOOT); return
 
-	# === simplified spawn: fire once as soon as any Shoot* animation is seen ===
 	var anim_name := animated_sprite.animation
 	if shooting and anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
 		_shot_fired_in_animation = true
@@ -333,3 +345,17 @@ func _on_hit_recovered() -> void:
 func _restore_color() -> void:
 	if animated_sprite:
 		animated_sprite.modulate = Color(1, 1, 1)
+
+# -------------------- Slide-shoot  --------------------
+
+func _do_slide_shoot() -> void:
+	# spawn immediately
+	_spawn_bullet()
+	_shot_fired_in_animation = true
+	animated_sprite.play("ShootDash")
+
+	var t = get_tree().create_timer(max(0.08, SLIDE_SHOOT_COOLDOWN))
+	t.timeout.connect(Callable(self, "_reset_shot_flag"))
+
+func _reset_shot_flag() -> void:
+	_shot_fired_in_animation = false

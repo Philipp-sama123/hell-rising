@@ -1521,4 +1521,4 @@ position = Vector2(0, 8)
 shape = SubResource("CapsuleShape2D_7fbtx")
 
 [node name="Muzzle" type="Node2D" parent="."]
-position = Vector2(-31, 0)
+position = Vector2(-17, -2.0165074)
