@@ -777,6 +777,7 @@ sources/1 = SubResource("TileSetAtlasSource_81352")
 position = Vector2(0, 8)
 DASH_SPEED = 170.0
 BULLET_SPEED = 175.0
+BulletScene = ExtResource("5_81352")
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
 offset = Vector2(0, -25)

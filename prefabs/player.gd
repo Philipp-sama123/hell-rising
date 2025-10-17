@@ -28,7 +28,7 @@ class_name player
 @export var BulletScene: PackedScene
 
 # ----------------------------
-# State enum
+# State enum (expanded with shoot variants)
 # ----------------------------
 enum {
 	STATE_IDLE,
@@ -38,7 +38,16 @@ enum {
 	STATE_FALL,
 	STATE_DASH,
 	STATE_AIM,
+
+	# generic shoot (kept for compatibility)
 	STATE_SHOOT,
+
+	# specific shoot states (preferred)
+	STATE_SHOOT_IDLE,
+	STATE_SHOOT_WALK,
+	STATE_SHOOT_RUN,
+	STATE_SHOOT_JUMP,
+	STATE_SHOOT_FALL,
 }
 
 # ----------------------------
@@ -128,7 +137,7 @@ func _physics_process(delta: float) -> void:
 
 	# state precedence
 	if shooting:
-		_change_state(STATE_SHOOT)
+		_change_state(_shoot_state_for_motion())
 		return
 
 	if pre_aiming:
@@ -153,7 +162,7 @@ func _handle_input(delta: float) -> void:
 
 	_update_muzzle_transform()
 
-	if Input.is_action_just_pressed("Dash"):
+	if Input.is_action_just_pressed("Dash") and not shooting:
 		_start_dash()
 
 	# Aim
@@ -166,7 +175,7 @@ func _handle_input(delta: float) -> void:
 		else:
 			if aiming:
 				shooting = true
-				_change_state(STATE_SHOOT)
+				_change_state(_shoot_state_for_motion())
 			else:
 				pre_aiming = true
 				pre_aim_frames = PRE_AIM_FRAME_COUNT
@@ -290,7 +299,7 @@ func _handle_landing() -> void:
 			return
 
 		if shooting:
-			_change_state(STATE_SHOOT)
+			_change_state(_shoot_state_for_motion())
 		elif aiming:
 			_change_state(STATE_AIM)
 		else:
@@ -348,6 +357,8 @@ func _change_state(new_state: int) -> void:
 			_play_anim_with_aim("Dash")
 		STATE_AIM:
 			_play_anim_with_aim(_get_motion_name_from_velocity())
+
+		# Generic shoot: try to play Shoot<Motion>, fallback to Shoot, then motion animation
 		STATE_SHOOT:
 			_shot_fired_in_animation = false
 			var bm := _get_motion_name_from_velocity()
@@ -360,6 +371,47 @@ func _change_state(new_state: int) -> void:
 				return
 			_play_anim_with_aim(bm)
 
+		# Specific Shoot states prefer Shoot<Motion>
+		STATE_SHOOT_IDLE:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootIdle"):
+				animated_sprite.play("ShootIdle")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Idle")
+
+		STATE_SHOOT_WALK:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootWalk"):
+				animated_sprite.play("ShootWalk")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Walk")
+
+		STATE_SHOOT_RUN:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootRun"):
+				animated_sprite.play("ShootRun")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Run")
+
+		STATE_SHOOT_JUMP:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootJump"):
+				animated_sprite.play("ShootJump")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Jump")
+
+		STATE_SHOOT_FALL:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootFall"):
+				animated_sprite.play("ShootFall")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Fall")
+
 func _get_motion_name_from_velocity() -> String:
 	var abs_vx = abs(velocity.x)
 	if is_on_floor():
@@ -369,6 +421,23 @@ func _get_motion_name_from_velocity() -> String:
 			return "Run"
 		return "Walk"
 	return "Jump" if velocity.y < 0 else "Fall"
+
+# helper: map current motion → shoot state
+func _shoot_state_for_motion() -> int:
+	var motion := _get_motion_name_from_velocity()
+	match motion:
+		"Idle":
+			return STATE_SHOOT_IDLE
+		"Walk":
+			return STATE_SHOOT_WALK
+		"Run":
+			return STATE_SHOOT_RUN
+		"Jump":
+			return STATE_SHOOT_JUMP
+		"Fall":
+			return STATE_SHOOT_FALL
+		_:
+			return STATE_SHOOT
 
 func _on_animation_finished() -> void:
 	var a := animated_sprite.animation
@@ -381,7 +450,7 @@ func _on_animation_finished() -> void:
 		_shot_fired_in_animation = false
 
 		# if we're in the middle of a dash, don't interrupt the dash animation/state
-		if is_dashing: 
+		if is_dashing:
 			animated_sprite.play("Dash")
 		elif aiming:
 			_change_state(STATE_AIM)
@@ -397,14 +466,14 @@ func _on_frame_changed() -> void:
 		if aiming:
 			pre_aiming = false
 			shooting = true
-			_change_state(STATE_SHOOT)
+			_change_state(_shoot_state_for_motion())
 			return
 
 		pre_aim_frames -= 1
 		if pre_aim_frames <= 0:
 			pre_aiming = false
 			shooting = true
-			_change_state(STATE_SHOOT)
+			_change_state(_shoot_state_for_motion())
 			return
 
 	var anim_name := animated_sprite.animation
@@ -455,7 +524,7 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 func _on_hit_recovered() -> void:
 	is_hit = false
 	if shooting:
-		_change_state(STATE_SHOOT)
+		_change_state(_shoot_state_for_motion())
 	elif aiming:
 		_change_state(STATE_AIM)
 	else:
