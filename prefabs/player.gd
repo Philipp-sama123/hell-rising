@@ -35,8 +35,12 @@ enum {
 
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var muzzle: Node2D = $Muzzle
+@onready var normal_shape: CollisionShape2D = $NormalShape
+@onready var slide_shape: CollisionShape2D = $SlideShape
+@export var SLIDE_MIN_TIME: float = 0.5  # minimum time (seconds) the slide must last when triggered
+@export var SLIDE_MAX_TIME: float = 5.0  # maximum time (seconds) the slide can last
 
-# runtime/state
+var _slide_time_elapsed: float = 0.0
 var state: int = STATE_IDLE
 var was_on_floor: bool = false
 var is_dashing: bool = false
@@ -65,10 +69,7 @@ var _shot_fired_in_animation: bool = false
 var _muzzle_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_base_scale: Vector2 = Vector2.ONE
 
-# internal timer node for hit stun (restartable)
 var _hit_timer: Timer = null
-
-# slide-shoot runtime
 var _slide_shoot_cd: float = 0.0
 
 func _ready() -> void:
@@ -92,7 +93,15 @@ func _physics_process(delta: float) -> void:
 	_handle_input(delta)
 	_apply_gravity(delta)
 	_handle_horizontal()
-	
+	# tick slide timer & handle release/min/max behavior (new)
+	if is_dashing:
+		_slide_time_elapsed += delta
+		# end when we hit the max
+		if _slide_time_elapsed >= SLIDE_MAX_TIME:
+			_end_dash()
+		# or end if player released Dash and we've passed the minimum time
+		elif not Input.is_action_pressed("Dash") and _slide_time_elapsed >= SLIDE_MIN_TIME:
+			_end_dash()
 	move_and_slide()
 	
 	_handle_landing()
@@ -112,8 +121,7 @@ func _handle_input(delta: float) -> void:
 	_update_muzzle_transform()
 
 	if Input.is_action_just_pressed("Dash"):
-		velocity.x = facing_dir * DASH_SPEED; velocity.y = 0; is_dashing = true; pre_aiming = false; _change_state(STATE_DASH)
-
+		_start_dash()
 	aiming = Input.is_action_pressed("Aim")
 
 	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
@@ -154,7 +162,31 @@ func _handle_input(delta: float) -> void:
 		jumps_left -= 1; is_jumping = true; velocity.y = 0; _change_state(STATE_JUMP); _apply_jump_instant(); jump_hold_timer = JUMP_HOLD_TIME
 
 	jump_held = Input.is_action_pressed("Jump")
+	
+func _start_dash() -> void:
+	# start or restart sliding
+	velocity.x = facing_dir * DASH_SPEED
+	velocity.y = 0
+	is_dashing = true
+	pre_aiming = false
+	_slide_time_elapsed = 0.0
+	_change_state(STATE_DASH)
+	slide_shape.set_deferred("disabled", false)
+	normal_shape.set_deferred("disabled", true)
 
+func _end_dash() -> void:
+	# stop sliding — keep behavior consistent with your previous Dash->animation finished logic
+	is_dashing = false
+	# if on floor, zero horizontal motion and go to idle/walk
+	if is_on_floor():
+		velocity.x = 0
+		var abs_vx = abs(velocity.x)
+		_change_state(STATE_IDLE if abs_vx == 0 else STATE_WALK)
+	else:
+		_change_state(STATE_FALL)
+	slide_shape.set_deferred("disabled", true)
+	normal_shape.set_deferred("disabled", false)
+		
 func _apply_jump_velocity() -> void:
 	await get_tree().create_timer(JUMP_DELAY).timeout
 	velocity.y = JUMP_VELOCITY; jump_hold_timer = JUMP_HOLD_TIME
@@ -163,7 +195,7 @@ func _apply_jump_instant() -> void:
 	velocity.y = DOUBLE_JUMP_VELOCITY
 
 func _apply_gravity(delta: float) -> void:
-	if not is_on_floor() and not is_dashing:
+	if not is_on_floor():
 		if jump_held and jump_hold_timer > 0 and velocity.y < 0:
 			velocity += GRAVITY_VELOCITY * HOLD_GRAVITY_MULT * delta
 			jump_hold_timer = max(jump_hold_timer - delta, 0)
@@ -182,11 +214,21 @@ func _handle_horizontal() -> void:
 			velocity.x = move_toward(velocity.x, 0, WALK_SPEED)
 
 func _handle_landing() -> void:
+	# if we landed this frame...
 	if not was_on_floor and is_on_floor():
-		jumps_left = MAX_JUMPS; jump_hold_timer = 0; is_jumping = false
-		if shooting: _change_state(STATE_SHOOT)
-		elif aiming: _change_state(STATE_AIM)
-		else: _change_state(STATE_IDLE if velocity.x == 0 else STATE_WALK)
+		jumps_left = MAX_JUMPS
+		jump_hold_timer = 0
+		is_jumping = false
+
+		if is_dashing:
+			return
+
+		if shooting:
+			_change_state(STATE_SHOOT)
+		elif aiming:
+			_change_state(STATE_AIM)
+		else:
+			_change_state(STATE_IDLE if velocity.x == 0 else STATE_WALK)
 
 func _select_state_from_motion() -> void:
 	var abs_vx = abs(velocity.x)
@@ -237,9 +279,12 @@ func _get_motion_name_from_velocity() -> String:
 
 func _on_animation_finished() -> void:
 	var a := animated_sprite.animation
-	is_dashing = false; is_hit = false; is_jumping = false
+	is_hit = false;
+	is_jumping = false
+	
 	if a != "" and a.find("Shoot") != -1:
 		shooting = false; _shot_fired_in_animation = false
+		if(is_dashing): return
 		if aiming: _change_state(STATE_AIM)
 		else:
 			if is_on_floor():
@@ -247,11 +292,6 @@ func _on_animation_finished() -> void:
 				_change_state(STATE_IDLE if abs_vx == 0 else (STATE_RUN if abs_vx > WALK_SPEED else STATE_WALK))
 			else:
 				_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
-	if a == "Dash":
-		if is_on_floor():
-			velocity.x = 0; _change_state(STATE_IDLE if velocity.x == 0 else STATE_WALK)
-		else:
-			_change_state(STATE_FALL)
 
 func _on_frame_changed() -> void:
 	if pre_aiming:
@@ -303,6 +343,22 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 
 	print("[take_damage] src:", source_pos, " player:", global_position, " dir_x:", dir_x, " kb:", used_kb, " vel.x:", velocity.x)
 
+func _restore_color() -> void:
+	if animated_sprite:
+		animated_sprite.modulate = Color(1, 1, 1)
+
+func _do_slide_shoot() -> void:
+	# spawn immediately
+	_spawn_bullet()
+	_shot_fired_in_animation = true
+	animated_sprite.play("ShootDash")
+
+	var t = get_tree().create_timer(max(0.08, SLIDE_SHOOT_COOLDOWN))
+	t.timeout.connect(Callable(self, "_reset_shot_flag"))
+
+func _reset_shot_flag() -> void:
+	_shot_fired_in_animation = false
+
 	
 func _spawn_bullet() -> void:
 	if not BulletScene:
@@ -340,22 +396,3 @@ func _on_hit_recovered() -> void:
 			_change_state(STATE_IDLE if abs_vx == 0 else (STATE_RUN if abs_vx > WALK_SPEED else STATE_WALK))
 		else:
 			_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
-
-# restore sprite color after a short flash
-func _restore_color() -> void:
-	if animated_sprite:
-		animated_sprite.modulate = Color(1, 1, 1)
-
-# -------------------- Slide-shoot  --------------------
-
-func _do_slide_shoot() -> void:
-	# spawn immediately
-	_spawn_bullet()
-	_shot_fired_in_animation = true
-	animated_sprite.play("ShootDash")
-
-	var t = get_tree().create_timer(max(0.08, SLIDE_SHOOT_COOLDOWN))
-	t.timeout.connect(Callable(self, "_reset_shot_flag"))
-
-func _reset_shot_flag() -> void:
-	_shot_fired_in_animation = false

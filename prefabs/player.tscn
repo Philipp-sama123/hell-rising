@@ -1,8 +1,7 @@
-[gd_scene load_steps=197 format=3 uid="uid://c2ifcpfan6bo0"]
+[gd_scene load_steps=196 format=3 uid="uid://c2ifcpfan6bo0"]
 
 [ext_resource type="Script" uid="uid://yrs2ka60puoa" path="res://prefabs/player.gd" id="1_4dohe"]
 [ext_resource type="Texture2D" uid="uid://cw1cpa5qqro6x" path="res://assets/FemaleAgent/GandalfHardcore Female Agent black.png" id="1_72ieh"]
-[ext_resource type="PackedScene" uid="uid://q0m48l7bqx61" path="res://prefabs/bullet.tscn" id="2_r66lb"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_4dohe"]
 atlas = ExtResource("1_72ieh")
@@ -1068,7 +1067,7 @@ animations = [{
 "duration": 1.0,
 "texture": SubResource("AtlasTexture_qgjtq")
 }],
-"loop": false,
+"loop": true,
 "name": &"Dash",
 "speed": 12.0
 }, {
@@ -1508,16 +1507,23 @@ collision_layer = 2
 collision_mask = 9
 script = ExtResource("1_4dohe")
 DASH_SPEED = 250.0
-BulletScene = ExtResource("2_r66lb")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_an77k")
-animation = &"Shoot"
+animation = &"Dash"
+frame = 4
+frame_progress = 1.0
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+[node name="NormalShape" type="CollisionShape2D" parent="."]
 position = Vector2(0, 8)
 shape = SubResource("CapsuleShape2D_7fbtx")
+
+[node name="SlideShape" type="CollisionShape2D" parent="."]
+position = Vector2(0, 8)
+rotation = 1.5707964
+shape = SubResource("CapsuleShape2D_7fbtx")
+disabled = true
 
 [node name="Muzzle" type="Node2D" parent="."]
 position = Vector2(-10, -2.0165074)
