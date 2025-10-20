@@ -75,10 +75,13 @@ var is_jumping: bool = false
 var is_hit: bool = false
 
 var aiming: bool = false
-var aim_up: bool = false                     # <-- new: whether the player is holding Up (aiming up)
+var aim_up: bool = false                     # whether the player is holding Up (aiming up)
 var shooting: bool = false
 var pre_aiming: bool = false
 var pre_aim_frames: int = 0
+
+# crouch
+var is_crouching: bool = false
 
 const MAX_JUMPS: int = 2
 var jumps_left: int = MAX_JUMPS
@@ -109,14 +112,14 @@ var _muzzle_up_base_scale: Vector2 = Vector2.ONE
 func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
-	
+
 	if muzzle:
 		_muzzle_base_offset = Vector2(abs(muzzle.position.x), muzzle.position.y)
 		_muzzle_base_scale = muzzle.scale.abs()
 	if muzzle_up:
 		_muzzle_up_base_offset = Vector2(abs(muzzle_up.position.x), muzzle_up.position.y)
 		_muzzle_up_base_scale = muzzle_up.scale.abs()
-		
+
 	# hit/stun timer (restartable)
 	_hit_timer = Timer.new()
 	_hit_timer.one_shot = true
@@ -164,6 +167,56 @@ func _physics_process(delta: float) -> void:
 		_change_state(STATE_AIM)
 
 # ----------------------------
+# Helpers for animations
+# ----------------------------
+func _has_anim(_name: String) -> bool:
+	return animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(_name)
+
+# central helper that prefers crouch variants, aim_up, aim, then base
+func _play_anim_with_aim(base_name: String) -> void:
+	if animated_sprite:
+		animated_sprite.flip_h = facing_dir > 0
+
+	# 1) crouch-specific (if crouching)
+	if is_crouching and animated_sprite and animated_sprite.sprite_frames:
+		# prefer crouch aim up / crouch aim
+		if aim_up and _has_anim("CrouchAimUp"):
+			animated_sprite.play("CrouchAimUp"); return
+		if aiming and _has_anim("CrouchAim"):
+			animated_sprite.play("CrouchAim"); return
+		# try generic Crouch + base (CrouchIdle / CrouchWalk etc)
+		var cbase := "Crouch" + base_name
+		if _has_anim(cbase):
+			animated_sprite.play(cbase); return
+		# fallback to CrouchIdle if we're crouching and base is Idle or not found
+		if _has_anim("CrouchIdle"):
+			animated_sprite.play("CrouchIdle"); return
+
+	# 2) aim up
+	if aim_up and animated_sprite and animated_sprite.sprite_frames:
+		var aim_up_name := "AimUp" + base_name
+		if animated_sprite.sprite_frames.has_animation(aim_up_name):
+			animated_sprite.play(aim_up_name); return
+		if base_name == "Idle" and animated_sprite.sprite_frames.has_animation("AimUp"):
+			animated_sprite.play("AimUp"); return
+
+	# 3) aim
+	if aiming and animated_sprite and animated_sprite.sprite_frames:
+		var aim := "Aim" + base_name
+		if animated_sprite.sprite_frames.has_animation(aim):
+			animated_sprite.play(aim); return
+		if base_name == "Idle" and animated_sprite.sprite_frames.has_animation("Aim"):
+			animated_sprite.play("Aim"); return
+
+	# 4) base
+	if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(base_name):
+		animated_sprite.play(base_name); return
+
+	# final fallback
+	if animated_sprite:
+		animated_sprite.play("Idle")
+
+# ----------------------------
 # Input handling
 # ----------------------------
 func _handle_input(delta: float) -> void:
@@ -177,13 +230,13 @@ func _handle_input(delta: float) -> void:
 	_update_muzzle_transform()
 
 	# Dash (don't start dash while actively shooting)
-	if Input.is_action_just_pressed("Dash") and not shooting:
+	if Input.is_action_just_pressed("Dash") and not shooting and not is_crouching:
 		_start_dash()
 
 	# Aim & AimUp (Up is a dedicated Input action in your project)
 	aiming = Input.is_action_pressed("Aim")
-	# only allow aim_up while on the floor and not dashing
-	aim_up = Input.is_action_pressed("Up") and is_on_floor() and not is_dashing
+	# allow aim_up while on the floor OR while crouching (and not dashing)
+	aim_up = Input.is_action_pressed("Up") and (is_on_floor() or is_crouching) and not is_dashing
 
 	# Shoot handling
 	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
@@ -200,25 +253,18 @@ func _handle_input(delta: float) -> void:
 				shooting = true
 				_change_state(_shoot_state_for_motion())
 			else:
-				# pre-aim (normal aim or aim_up)
+				# pre-aim (normal aim or aim_up) — use central helper
 				pre_aiming = true
 				pre_aim_frames = PRE_AIM_FRAME_COUNT
 				var base_motion := _get_motion_name_from_velocity()
-				# prefer AimUp animations if aim_up is true
-				var aim_name := ("AimUp" + base_motion if aim_up else "Aim" + base_motion)
-				if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_name):
-					animated_sprite.play(aim_name)
-				elif aim_up and animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("AimUp"):
-					animated_sprite.play("AimUp")
-				elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim"):
-					animated_sprite.play("Aim")
-				else:
-					_change_state(STATE_AIM)
+				# let _play_anim_with_aim pick the correct Aim / AimUp / CrouchAim / CrouchAimUp variant
+				_play_anim_with_aim(base_motion)
 
 	# pre-aim cancels while dashing/hit
 	if is_dashing or is_hit:
 		pre_aiming = false
 
+	# rest of the function unchanged...
 	if Input.is_action_just_pressed("Jump"):
 		jump_buffer_timer = jump_buffer_time
 	else:
@@ -251,6 +297,7 @@ func _handle_input(delta: float) -> void:
 		jump_hold_timer = JUMP_HOLD_TIME
 
 	jump_held = Input.is_action_pressed("Jump")
+
 
 # ----------------------------
 # Dash helpers
@@ -309,6 +356,11 @@ func _apply_gravity(delta: float) -> void:
 				jump_hold_timer = 0
 
 func _handle_horizontal() -> void:
+	# if crouching, ignore horizontal input (no movement while crouched)
+	if is_crouching:
+		velocity.x = 0
+		return
+
 	if not is_dashing and not is_hit:
 		var dir := int(Input.get_axis("Left", "Right"))
 		var is_running := Input.is_action_pressed("Run")
@@ -353,34 +405,16 @@ func _select_state_from_motion() -> void:
 			_change_state(STATE_WALK)
 
 # ----------------------------
-# Animation
+# Animation & State change (crouch-aware)
 # ----------------------------
-func _play_anim_with_aim(base_name: String) -> void:
-	# This now prefers AimUp animations when aim_up is true
-	if animated_sprite:
-		animated_sprite.flip_h = facing_dir > 0
-	if animated_sprite and animated_sprite.sprite_frames:
-		if aim_up:
-			var aim_up_name := "AimUp" + base_name
-			if animated_sprite.sprite_frames.has_animation(aim_up_name):
-				animated_sprite.play(aim_up_name)
-				return
-			if base_name == "Idle" and animated_sprite.sprite_frames.has_animation("AimUp"):
-				animated_sprite.play("AimUp")
-				return
-		if aiming:
-			var aim := "Aim" + base_name
-			if animated_sprite.sprite_frames.has_animation(aim):
-				animated_sprite.play(aim)
-				return
-			if base_name == "Idle" and animated_sprite.sprite_frames.has_animation("Aim"):
-				animated_sprite.play("Aim")
-				return
-		if animated_sprite.sprite_frames.has_animation(base_name):
-			animated_sprite.play(base_name)
-			return
-	if animated_sprite:
-		animated_sprite.play("Idle")
+func _play_crouch_shoot_variant(prefix: String, motion: String) -> bool:
+	# Try crouch-specific shoot animations. Return true if played.
+	var names := [prefix + motion, prefix, "Crouch" + prefix + motion, "Crouch" + prefix, "CrouchShoot", "CrouchShoot" + motion]
+	for n in names:
+		if _has_anim(n):
+			animated_sprite.play(n)
+			return true
+	return false
 
 func _change_state(new_state: int) -> void:
 	if new_state == state:
@@ -405,10 +439,11 @@ func _change_state(new_state: int) -> void:
 			# AimUp variants: try AimUp<Motion>, then AimUp
 			var am := _get_motion_name_from_velocity()
 			var aim_up_name := "AimUp" + am
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_up_name):
+			if _has_anim(aim_up_name):
 				animated_sprite.play(aim_up_name)
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("AimUp"):
+			elif _has_anim("AimUp"):
 				animated_sprite.play("AimUp")
+			# crouch preference handled in _play_anim_with_aim fallback
 			else:
 				_play_anim_with_aim(am)
 
@@ -416,52 +451,63 @@ func _change_state(new_state: int) -> void:
 		STATE_SHOOT:
 			_shot_fired_in_animation = false
 			var bm := _get_motion_name_from_velocity()
+			# crouch-specific shoot first
+			if is_crouching and _play_crouch_shoot_variant("Shoot", bm):
+				return
 			var mn := "Shoot" + bm
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(mn):
-				animated_sprite.play(mn)
-				return
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
-				animated_sprite.play("Shoot")
-				return
+			if _has_anim(mn):
+				animated_sprite.play(mn); return
+			if _has_anim("Shoot"):
+				animated_sprite.play("Shoot"); return
 			_play_anim_with_aim(bm)
 
 		# Specific Shoot states prefer Shoot<Motion>
 		STATE_SHOOT_IDLE:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootIdle"):
+			if is_crouching and _play_crouch_shoot_variant("ShootIdle", "Idle"):
+				return
+			if _has_anim("ShootIdle"):
 				animated_sprite.play("ShootIdle")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Idle")
 
 		STATE_SHOOT_WALK:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootWalk"):
+			if is_crouching and _play_crouch_shoot_variant("ShootWalk", "Walk"):
+				return
+			if _has_anim("ShootWalk"):
 				animated_sprite.play("ShootWalk")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Walk")
 
 		STATE_SHOOT_RUN:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootRun"):
+			if is_crouching and _play_crouch_shoot_variant("ShootRun", "Run"):
+				return
+			if _has_anim("ShootRun"):
 				animated_sprite.play("ShootRun")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Run")
 
 		STATE_SHOOT_JUMP:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootJump"):
+			if is_crouching and _play_crouch_shoot_variant("ShootJump", "Jump"):
+				return
+			if _has_anim("ShootJump"):
 				animated_sprite.play("ShootJump")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Jump")
 
 		STATE_SHOOT_FALL:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootFall"):
+			if is_crouching and _play_crouch_shoot_variant("ShootFall", "Fall"):
+				return
+			if _has_anim("ShootFall"):
 				animated_sprite.play("ShootFall")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Fall")
@@ -470,64 +516,77 @@ func _change_state(new_state: int) -> void:
 		# Aim-Up specific shooting states
 		STATE_SHOOT_UP:
 			_shot_fired_in_animation = false
-			# prefer "ShootUp" + motion, fallback to "ShootUp", "Shoot"
 			var bm_up := _get_motion_name_from_velocity()
+			# crouch-specific shoot-up first
+			if is_crouching and (_has_anim("CrouchShootUp" + bm_up) or _has_anim("CrouchShootUp")):
+				if _has_anim("CrouchShootUp" + bm_up):
+					animated_sprite.play("CrouchShootUp" + bm_up); return
+				animated_sprite.play("CrouchShootUp"); return
+			# try non-crouch ShootUp variants
 			var mn_up := "ShootUp" + bm_up
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(mn_up):
-				animated_sprite.play(mn_up)
-				return
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
-				animated_sprite.play("ShootUp")
-				return
+			if _has_anim(mn_up):
+				animated_sprite.play(mn_up); return
+			if _has_anim("ShootUp"):
+				animated_sprite.play("ShootUp"); return
 			# fallback to generic shoot behavior
 			_play_anim_with_aim(bm_up)
 
 		STATE_SHOOT_UP_IDLE:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpIdle"):
+			if is_crouching and _has_anim("CrouchShootUpIdle"):
+				animated_sprite.play("CrouchShootUpIdle")
+			elif _has_anim("ShootUpIdle"):
 				animated_sprite.play("ShootUpIdle")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+			elif _has_anim("ShootUp"):
 				animated_sprite.play("ShootUp")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Idle")
 
 		STATE_SHOOT_UP_WALK:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpWalk"):
+			if is_crouching and _has_anim("CrouchShootUpWalk"):
+				animated_sprite.play("CrouchShootUpWalk")
+			elif _has_anim("ShootUpWalk"):
 				animated_sprite.play("ShootUpWalk")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+			elif _has_anim("ShootUp"):
 				animated_sprite.play("ShootUp")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Walk")
 
 		STATE_SHOOT_UP_RUN:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpRun"):
+			if is_crouching and _has_anim("CrouchShootUpRun"):
+				animated_sprite.play("CrouchShootUpRun")
+			elif _has_anim("ShootUpRun"):
 				animated_sprite.play("ShootUpRun")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+			elif _has_anim("ShootUp"):
 				animated_sprite.play("ShootUp")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Run")
 
 		STATE_SHOOT_UP_JUMP:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpJump"):
+			if is_crouching and _has_anim("CrouchShootUpJump"):
+				animated_sprite.play("CrouchShootUpJump")
+			elif _has_anim("ShootUpJump"):
 				animated_sprite.play("ShootUpJump")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+			elif _has_anim("ShootUp"):
 				animated_sprite.play("ShootUp")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Jump")
 
 		STATE_SHOOT_UP_FALL:
-			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpFall"):
+			if is_crouching and _has_anim("CrouchShootUpFall"):
+				animated_sprite.play("CrouchShootUpFall")
+			elif _has_anim("ShootUpFall"):
 				animated_sprite.play("ShootUpFall")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+			elif _has_anim("ShootUp"):
 				animated_sprite.play("ShootUp")
-			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+			elif _has_anim("Shoot"):
 				animated_sprite.play("Shoot")
 			else:
 				_play_anim_with_aim("Fall")
@@ -742,10 +801,9 @@ func _spawn_bullet() -> void:
 			b.set_velocity(dir_vec * BULLET_SPEED)
 
 	# ensure bullet rotation is applied immediately even if its own helper missed it
-	# (the bullet script also sets rotation internally; this is a safe no-op)
 	if b is Node2D:
-		# no art-orientation guess here — the bullet handles orient_offset itself based on its own export
 		b.rotation = dir_vec.angle()
+
 # ----------------------------
 # Utilities
 # ----------------------------
@@ -755,6 +813,10 @@ func _update_muzzle_transform() -> void:
 
 	# regular muzzle (mirrored by facing_dir)
 	var y_offset := _muzzle_base_offset.y
+	# small visual bump down while crouching
+	if is_crouching:
+		y_offset += 6
+
 	if aim_up:
 		# hide the regular muzzle while aiming up
 		y_offset -= 6
@@ -767,14 +829,14 @@ func _update_muzzle_transform() -> void:
 	muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
 	muzzle.scale.y = _muzzle_base_scale.y
 
-	# muzzle_up: use the opposite horizontal direction so it flips to the other side
+	# muzzle_up: use mirrored position (keeps muzzle_up on correct side)
 	if muzzle_up:
 		if aim_up:
 			muzzle_up.visible = true
 			var up_y := _muzzle_up_base_offset.y - 6
 			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir
-			muzzle_up.position.y = up_y
-			muzzle_up.scale.x = _muzzle_up_base_scale.x * float(-facing_dir)
+			muzzle_up.position.y = up_y + (6 if is_crouching else 0)
+			muzzle_up.scale.x = _muzzle_up_base_scale.x * float(facing_dir)
 			muzzle_up.scale.y = _muzzle_up_base_scale.y
 		else:
 			muzzle_up.visible = false
