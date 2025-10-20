@@ -21,14 +21,13 @@ class_name player
 @export var hit_kb_strength: float = 150.0
 
 @export var SLIDE_SHOOT_COOLDOWN: float = 0.15
-
 @export var SLIDE_MIN_TIME: float = 0.5
 @export var SLIDE_MAX_TIME: float = 5.0
 
 @export var BulletScene: PackedScene
 
 # ----------------------------
-# State enum (expanded with shoot variants)
+# State enum (expanded with shoot & aim-up states)
 # ----------------------------
 enum {
 	STATE_IDLE,
@@ -38,16 +37,21 @@ enum {
 	STATE_FALL,
 	STATE_DASH,
 	STATE_AIM,
-
-	# generic shoot (kept for compatibility)
 	STATE_SHOOT,
-
-	# specific shoot states (preferred)
 	STATE_SHOOT_IDLE,
 	STATE_SHOOT_WALK,
 	STATE_SHOOT_RUN,
 	STATE_SHOOT_JUMP,
 	STATE_SHOOT_FALL,
+
+	# Aim up + shoot-up variants
+	STATE_AIM_UP,
+	STATE_SHOOT_UP,
+	STATE_SHOOT_UP_IDLE,
+	STATE_SHOOT_UP_WALK,
+	STATE_SHOOT_UP_RUN,
+	STATE_SHOOT_UP_JUMP,
+	STATE_SHOOT_UP_FALL,
 }
 
 # ----------------------------
@@ -57,6 +61,7 @@ enum {
 @onready var muzzle: Node2D = $Muzzle
 @onready var normal_shape: CollisionShape2D = $NormalShape
 @onready var slide_shape: CollisionShape2D = $SlideShape
+@onready var muzzle_up: Node2D = $"MuzzleUp"
 
 # ----------------------------
 # Runtime state
@@ -70,6 +75,7 @@ var is_jumping: bool = false
 var is_hit: bool = false
 
 var aiming: bool = false
+var aim_up: bool = false                     # <-- new: whether the player is holding Up (aiming up)
 var shooting: bool = false
 var pre_aiming: bool = false
 var pre_aim_frames: int = 0
@@ -95,17 +101,22 @@ var _shot_fired_in_animation: bool = false
 var _muzzle_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_base_scale: Vector2 = Vector2.ONE
 
+var _muzzle_up_base_offset: Vector2 = Vector2.ZERO
+var _muzzle_up_base_scale: Vector2 = Vector2.ONE
 # ----------------------------
 # Lifecycle
 # ----------------------------
 func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
-
+	
 	if muzzle:
 		_muzzle_base_offset = Vector2(abs(muzzle.position.x), muzzle.position.y)
 		_muzzle_base_scale = muzzle.scale.abs()
-
+	if muzzle_up:
+		_muzzle_up_base_offset = Vector2(abs(muzzle_up.position.x), muzzle_up.position.y)
+		_muzzle_up_base_scale = muzzle_up.scale.abs()
+		
 	# hit/stun timer (restartable)
 	_hit_timer = Timer.new()
 	_hit_timer.one_shot = true
@@ -146,7 +157,10 @@ func _physics_process(delta: float) -> void:
 	if not is_dashing and not is_hit:
 		_select_state_from_motion()
 
-	if aiming and not (is_dashing or is_hit or shooting or pre_aiming):
+	# prefer AimUp when aim_up is true
+	if aim_up and not (is_dashing or is_hit or shooting or pre_aiming):
+		_change_state(STATE_AIM_UP)
+	elif aiming and not (is_dashing or is_hit or shooting or pre_aiming):
 		_change_state(STATE_AIM)
 
 # ----------------------------
@@ -162,27 +176,40 @@ func _handle_input(delta: float) -> void:
 
 	_update_muzzle_transform()
 
+	# Dash (don't start dash while actively shooting)
 	if Input.is_action_just_pressed("Dash") and not shooting:
 		_start_dash()
 
-	# Aim
+	# Aim & AimUp (Up is a dedicated Input action in your project)
 	aiming = Input.is_action_pressed("Aim")
+	# only allow aim_up while on the floor and not dashing
+	aim_up = Input.is_action_pressed("Up") and is_on_floor() and not is_dashing
 
+	# Shoot handling
 	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
+		# slide-shoot (immediate) while dashing
 		if is_dashing and _slide_shoot_cd <= 0.0:
 			_do_slide_shoot()
 			_slide_shoot_cd = SLIDE_SHOOT_COOLDOWN
 		else:
-			if aiming:
+			# If aiming up, start the shoot-up state
+			if aim_up:
+				shooting = true
+				_change_state(_shoot_state_for_motion())
+			elif aiming:
 				shooting = true
 				_change_state(_shoot_state_for_motion())
 			else:
+				# pre-aim (normal aim or aim_up)
 				pre_aiming = true
 				pre_aim_frames = PRE_AIM_FRAME_COUNT
 				var base_motion := _get_motion_name_from_velocity()
-				var aim_name := "Aim" + base_motion
+				# prefer AimUp animations if aim_up is true
+				var aim_name := ("AimUp" + base_motion if aim_up else "Aim" + base_motion)
 				if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_name):
 					animated_sprite.play(aim_name)
+				elif aim_up and animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("AimUp"):
+					animated_sprite.play("AimUp")
 				elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim"):
 					animated_sprite.play("Aim")
 				else:
@@ -202,17 +229,23 @@ func _handle_input(delta: float) -> void:
 	else:
 		coyote_timer = max(coyote_timer - delta, 0)
 
+	# Jump logic (buffered jump)
 	if jump_buffer_timer > 0 and not is_dashing and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
 		jumps_left -= 1
 		jump_buffer_timer = 0
 		coyote_timer = 0
 		is_jumping = true
+		# stop aiming up when jumping
+		aim_up = false
 		_change_state(STATE_JUMP)
 		_apply_jump_velocity()
+	# Immediate jump (double jump)
 	elif Input.is_action_just_pressed("Jump") and jumps_left > 0 and not is_dashing:
 		jumps_left -= 1
 		is_jumping = true
 		velocity.y = 0
+		# stop aiming up when jumping
+		aim_up = false
 		_change_state(STATE_JUMP)
 		_apply_jump_instant()
 		jump_hold_timer = JUMP_HOLD_TIME
@@ -255,7 +288,7 @@ func _update_slide_timer(delta: float) -> void:
 		_end_dash()
 
 # ----------------------------
-# Movement / physics helpers
+# Movement
 # ----------------------------
 func _apply_jump_velocity() -> void:
 	await get_tree().create_timer(JUMP_DELAY).timeout
@@ -285,7 +318,7 @@ func _handle_horizontal() -> void:
 			velocity.x = move_toward(velocity.x, 0, WALK_SPEED)
 
 # ----------------------------
-# Landing / state selection
+# Landing
 # ----------------------------
 func _handle_landing() -> void:
 	# landing event happened this frame
@@ -300,6 +333,8 @@ func _handle_landing() -> void:
 
 		if shooting:
 			_change_state(_shoot_state_for_motion())
+		elif aim_up:
+			_change_state(STATE_AIM_UP)
 		elif aiming:
 			_change_state(STATE_AIM)
 		else:
@@ -318,12 +353,21 @@ func _select_state_from_motion() -> void:
 			_change_state(STATE_WALK)
 
 # ----------------------------
-# Animation / state helpers
+# Animation
 # ----------------------------
 func _play_anim_with_aim(base_name: String) -> void:
+	# This now prefers AimUp animations when aim_up is true
 	if animated_sprite:
 		animated_sprite.flip_h = facing_dir > 0
 	if animated_sprite and animated_sprite.sprite_frames:
+		if aim_up:
+			var aim_up_name := "AimUp" + base_name
+			if animated_sprite.sprite_frames.has_animation(aim_up_name):
+				animated_sprite.play(aim_up_name)
+				return
+			if base_name == "Idle" and animated_sprite.sprite_frames.has_animation("AimUp"):
+				animated_sprite.play("AimUp")
+				return
 		if aiming:
 			var aim := "Aim" + base_name
 			if animated_sprite.sprite_frames.has_animation(aim):
@@ -357,6 +401,16 @@ func _change_state(new_state: int) -> void:
 			_play_anim_with_aim("Dash")
 		STATE_AIM:
 			_play_anim_with_aim(_get_motion_name_from_velocity())
+		STATE_AIM_UP:
+			# AimUp variants: try AimUp<Motion>, then AimUp
+			var am := _get_motion_name_from_velocity()
+			var aim_up_name := "AimUp" + am
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_up_name):
+				animated_sprite.play(aim_up_name)
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("AimUp"):
+				animated_sprite.play("AimUp")
+			else:
+				_play_anim_with_aim(am)
 
 		# Generic shoot: try to play Shoot<Motion>, fallback to Shoot, then motion animation
 		STATE_SHOOT:
@@ -412,6 +466,72 @@ func _change_state(new_state: int) -> void:
 			else:
 				_play_anim_with_aim("Fall")
 
+		# ----------------------------
+		# Aim-Up specific shooting states
+		STATE_SHOOT_UP:
+			_shot_fired_in_animation = false
+			# prefer "ShootUp" + motion, fallback to "ShootUp", "Shoot"
+			var bm_up := _get_motion_name_from_velocity()
+			var mn_up := "ShootUp" + bm_up
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(mn_up):
+				animated_sprite.play(mn_up)
+				return
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+				animated_sprite.play("ShootUp")
+				return
+			# fallback to generic shoot behavior
+			_play_anim_with_aim(bm_up)
+
+		STATE_SHOOT_UP_IDLE:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpIdle"):
+				animated_sprite.play("ShootUpIdle")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+				animated_sprite.play("ShootUp")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Idle")
+
+		STATE_SHOOT_UP_WALK:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpWalk"):
+				animated_sprite.play("ShootUpWalk")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+				animated_sprite.play("ShootUp")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Walk")
+
+		STATE_SHOOT_UP_RUN:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpRun"):
+				animated_sprite.play("ShootUpRun")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+				animated_sprite.play("ShootUp")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Run")
+
+		STATE_SHOOT_UP_JUMP:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpJump"):
+				animated_sprite.play("ShootUpJump")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+				animated_sprite.play("ShootUp")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Jump")
+
+		STATE_SHOOT_UP_FALL:
+			if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUpFall"):
+				animated_sprite.play("ShootUpFall")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("ShootUp"):
+				animated_sprite.play("ShootUp")
+			elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Shoot"):
+				animated_sprite.play("Shoot")
+			else:
+				_play_anim_with_aim("Fall")
+
 func _get_motion_name_from_velocity() -> String:
 	var abs_vx = abs(velocity.x)
 	if is_on_floor():
@@ -422,22 +542,38 @@ func _get_motion_name_from_velocity() -> String:
 		return "Walk"
 	return "Jump" if velocity.y < 0 else "Fall"
 
-# helper: map current motion → shoot state
+# helper: map current motion → shoot state (respects aim_up)
 func _shoot_state_for_motion() -> int:
 	var motion := _get_motion_name_from_velocity()
-	match motion:
-		"Idle":
-			return STATE_SHOOT_IDLE
-		"Walk":
-			return STATE_SHOOT_WALK
-		"Run":
-			return STATE_SHOOT_RUN
-		"Jump":
-			return STATE_SHOOT_JUMP
-		"Fall":
-			return STATE_SHOOT_FALL
-		_:
-			return STATE_SHOOT
+	# if aiming up, choose shoot-up variants
+	if aim_up:
+		match motion:
+			"Idle":
+				return STATE_SHOOT_UP_IDLE
+			"Walk":
+				return STATE_SHOOT_UP_WALK
+			"Run":
+				return STATE_SHOOT_UP_RUN
+			"Jump":
+				return STATE_SHOOT_UP_JUMP
+			"Fall":
+				return STATE_SHOOT_UP_FALL
+			_:
+				return STATE_SHOOT_UP
+	else:
+		match motion:
+			"Idle":
+				return STATE_SHOOT_IDLE
+			"Walk":
+				return STATE_SHOOT_WALK
+			"Run":
+				return STATE_SHOOT_RUN
+			"Jump":
+				return STATE_SHOOT_JUMP
+			"Fall":
+				return STATE_SHOOT_FALL
+			_:
+				return STATE_SHOOT
 
 func _on_animation_finished() -> void:
 	var a := animated_sprite.animation
@@ -449,9 +585,11 @@ func _on_animation_finished() -> void:
 		shooting = false
 		_shot_fired_in_animation = false
 
-		# if we're in the middle of a dash, don't interrupt the dash animation/state
+		# if we're in the middle of a dash, ensure dash visual continues
 		if is_dashing:
 			animated_sprite.play("Dash")
+		elif aim_up:
+			_change_state(STATE_AIM_UP)
 		elif aiming:
 			_change_state(STATE_AIM)
 		else:
@@ -463,11 +601,19 @@ func _on_animation_finished() -> void:
 
 func _on_frame_changed() -> void:
 	if pre_aiming:
-		if aiming:
-			pre_aiming = false
-			shooting = true
-			_change_state(_shoot_state_for_motion())
-			return
+		if aim_up:
+			# if player pressed Up when pre-aiming, start shoot-up
+			if aim_up:
+				pre_aiming = false
+				shooting = true
+				_change_state(_shoot_state_for_motion())
+				return
+		else:
+			if aiming:
+				pre_aiming = false
+				shooting = true
+				_change_state(_shoot_state_for_motion())
+				return
 
 		pre_aim_frames -= 1
 		if pre_aim_frames <= 0:
@@ -525,6 +671,8 @@ func _on_hit_recovered() -> void:
 	is_hit = false
 	if shooting:
 		_change_state(_shoot_state_for_motion())
+	elif aim_up:
+		_change_state(STATE_AIM_UP)
 	elif aiming:
 		_change_state(STATE_AIM)
 	else:
@@ -561,25 +709,43 @@ func _spawn_bullet() -> void:
 	if not b:
 		return
 
+	var spawn_pos: Vector2
+	if aim_up and muzzle_up:
+		spawn_pos = muzzle_up.global_position
+	elif muzzle:
+		spawn_pos = muzzle.global_position
+	else:
+		spawn_pos = global_position + Vector2(facing_dir * 12, -4)
+
+	# Add bullet to scene and set position
 	get_tree().current_scene.add_child(b)
-	var spawn_pos := muzzle.global_position if muzzle else (global_position + Vector2(facing_dir * 12, -4))
 	b.global_position = spawn_pos
 
+	# mark as bullet group & owner
 	if not b.is_in_group("bullet"):
 		b.add_to_group("bullet")
-
 	if b.has_method("set_shooter_owner"):
 		b.set_shooter_owner(self)
 
+	# Direction: straight up when aim_up, otherwise horizontal based on facing
 	var dir_vec := Vector2(facing_dir, 0)
+	if aim_up:
+		dir_vec = Vector2(0, -1)
+
+	# Use bullet API to set direction/velocity — bullet will set its rotation immediately
 	if b.has_method("set_direction"):
-		b.set_direction(dir_vec)
+		b.set_direction(dir_vec, BULLET_SPEED)
 	elif b.has_method("set_velocity"):
 		if b.has_variable("speed"):
 			b.set_velocity(dir_vec * b.speed)
 		else:
 			b.set_velocity(dir_vec * BULLET_SPEED)
 
+	# ensure bullet rotation is applied immediately even if its own helper missed it
+	# (the bullet script also sets rotation internally; this is a safe no-op)
+	if b is Node2D:
+		# no art-orientation guess here — the bullet handles orient_offset itself based on its own export
+		b.rotation = dir_vec.angle()
 # ----------------------------
 # Utilities
 # ----------------------------
@@ -587,7 +753,28 @@ func _update_muzzle_transform() -> void:
 	if not muzzle:
 		return
 
+	# regular muzzle (mirrored by facing_dir)
+	var y_offset := _muzzle_base_offset.y
+	if aim_up:
+		# hide the regular muzzle while aiming up
+		y_offset -= 6
+		muzzle.visible = false
+	else:
+		muzzle.visible = true
+
 	muzzle.position.x = _muzzle_base_offset.x * facing_dir
-	muzzle.position.y = _muzzle_base_offset.y
+	muzzle.position.y = y_offset
 	muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
 	muzzle.scale.y = _muzzle_base_scale.y
+
+	# muzzle_up: use the opposite horizontal direction so it flips to the other side
+	if muzzle_up:
+		if aim_up:
+			muzzle_up.visible = true
+			var up_y := _muzzle_up_base_offset.y - 6
+			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir
+			muzzle_up.position.y = up_y
+			muzzle_up.scale.x = _muzzle_up_base_scale.x * float(-facing_dir)
+			muzzle_up.scale.y = _muzzle_up_base_scale.y
+		else:
+			muzzle_up.visible = false
