@@ -2,7 +2,7 @@ extends CharacterBody2D
 class_name player
 
 # ----------------------------
-# Exports (tunable)
+# Exports
 # ----------------------------
 @export var WALK_SPEED: float = 30.0
 @export var RUN_SPEED: float = 100.0
@@ -118,7 +118,6 @@ func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
 
-	# cache muzzle transforms (use abs for x so we can flip by sign)
 	if muzzle:
 		_muzzle_base_offset = Vector2(abs(muzzle.position.x), muzzle.position.y)
 		_muzzle_base_scale = muzzle.scale.abs()
@@ -137,7 +136,6 @@ func _ready() -> void:
 # Main loop
 # ----------------------------
 func _physics_process(delta: float) -> void:
-	# update cooldowns/timers
 	_slide_shoot_cd = max(0.0, _slide_shoot_cd - delta)
 
 	_handle_input(delta)
@@ -147,14 +145,13 @@ func _physics_process(delta: float) -> void:
 	_update_slide_timer(delta)
 
 	move_and_slide()
+	_update_muzzle_transform()
 	_handle_landing()
 
-	# housekeeping after movement
 	was_on_floor = is_on_floor()
 	if velocity.y >= 0:
 		is_jumping = false
 
-	# state precedence: shooting / pre-aim override motion-based states
 	if shooting:
 		_change_state(_shoot_state_for_motion())
 		return
@@ -171,86 +168,45 @@ func _physics_process(delta: float) -> void:
 	elif aiming and not (is_dashing or is_hit or shooting or pre_aiming):
 		_change_state(STATE_AIM)
 
-# ----------------------------
-# Animation helpers (utility)
-# ----------------------------
-func _try_play_any_animation(names: Array) -> bool:
-	if not animated_sprite or not animated_sprite.sprite_frames:
-		return false
-	for n in names:
-		if animated_sprite.sprite_frames.has_animation(n):
-			animated_sprite.play(n)
-			return true
-	return false
-
-# High-level: prefer crouch variants -> aim_up -> aim -> base -> fallback Idle
-func _play_anim_with_aim(base_name: String) -> void:
+func _require_play(name: String) -> void:
 	if not animated_sprite:
-		return
-
+		push_error("AnimatedSprite2D node missing (animated_sprite is null).")
+		assert(false, "AnimatedSprite2D node missing.")
+	if not animated_sprite.sprite_frames:
+		push_error("sprite_frames missing on AnimatedSprite2D.")
+		assert(false, "sprite_frames missing.")
+		assert(animated_sprite.sprite_frames.has_animation(name), "Missing animation: " + name)
+	# flip before play so animation uses correct facing immediately
 	animated_sprite.flip_h = facing_dir > 0
+	animated_sprite.play(name)
 
-	# 1) crouch specific: prefer AimUp/CrouchAim etc.
-	if is_crouching and animated_sprite.sprite_frames:
-		# prefer crouch aim up / crouch aim
-		if aim_up and _try_play_any_animation(["CrouchAimUp"]):
+func _play_anim_with_aim(base_name: String) -> void:
+	var motion := base_name  # e.g. "Idle","Walk","Run","Jump","Fall","Dash"
+	var anim_name: String
+	
+	if base_name == "Jump" or base_name == "Fall":
+		if aiming and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim" + base_name):
+			_require_play("Aim" + base_name)
 			return
-		if aiming and _try_play_any_animation(["CrouchAim"]):
-			return
-		# generic crouch base (CrouchIdle / CrouchWalk etc)
-		var cbase := "Crouch" + base_name
-		if _try_play_any_animation([cbase]):
-			return
-		# fallback to CrouchIdle
-		if _try_play_any_animation(["CrouchIdle"]):
-			return
-
-	# 2) aim up
-	if aim_up and animated_sprite.sprite_frames:
-		var aim_up_name := "AimUp" + base_name
-		if _try_play_any_animation([aim_up_name]) or (base_name == "Idle" and _try_play_any_animation(["AimUp"])):
-			return
-
-	# 3) aim
-	if aiming and animated_sprite.sprite_frames:
-		var aim := "Aim" + base_name
-		if _try_play_any_animation([aim]) or (base_name == "Idle" and _try_play_any_animation(["Aim"])):
-			return
-
-	# 4) base
-	if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(base_name):
-		animated_sprite.play(base_name)
+		_require_play(base_name)
 		return
 
-	# final fallback
-	animated_sprite.play("Idle")
-
-# Helper for various shoot-state animation selection (handles crouch and aim_up logic)
-func _play_shoot_variant(prefix: String, motion: String, prefer_aim_up: bool = false) -> bool:
-	# prefix may be "Shoot", "ShootIdle", "ShootWalk", etc or "ShootUp"
-	# motion is "Idle","Walk"...
-	var candidates := []
-
-	# For crouch we try "Crouch" variants early (mirrors original logic).
-	# Order chosen to replicate original fallback behaviour.
 	if is_crouching:
-		candidates += ["Crouch" + prefix + motion, "Crouch" + prefix, "CrouchShoot", "CrouchShoot" + motion]
+		if aim_up:
+			anim_name = "CrouchAimUp" + motion
+		elif aiming:
+			anim_name = "CrouchAim" + motion
+		else:
+			anim_name = "Crouch" + motion
+	else:
+		if aim_up:
+			anim_name = "AimUp" + motion
+		elif aiming:
+			anim_name = "Aim" + motion
+		else:
+			anim_name = motion  # e.g. "Idle", "Walk"
 
-	# prefer specific full-name first (prefix+motion), then prefix, then generic "Shoot" fallback
-	candidates += [prefix + motion, prefix, "Shoot"]
-
-	# For aim-up variants if requested, also add "ShootUp" style candidates if not already included
-	if prefer_aim_up:
-		# try the unique aim-up candidates before generic fallbacks if the sprite has them
-		var up_candidates := []
-		if is_crouching:
-			up_candidates += ["CrouchShootUp" + motion, "CrouchShootUp"]
-		up_candidates += ["ShootUp" + motion, "ShootUp"]
-		# place up_candidates at front so they're tried before generic "Shoot" fallbacks
-		candidates = up_candidates + candidates
-
-	# Try the list and play first found.
-	return _try_play_any_animation(candidates)
+	_require_play(anim_name)
 
 # ----------------------------
 # Input handling
@@ -279,18 +235,15 @@ func _handle_input(delta: float) -> void:
 
 	# Aim & AimUp (Up is a dedicated Input action)
 	aiming = Input.is_action_pressed("Aim")
-	# only allow aim_up while on the floor and not dashing
 	aim_up = Input.is_action_pressed("Up") and is_on_floor() and not is_dashing
 
 	# Shoot handling
 	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
-		# slide-shoot immediate when dashing
 		if is_dashing and _slide_shoot_cd <= 0.0:
 			_do_slide_shoot()
 			_slide_shoot_cd = SLIDE_SHOOT_COOLDOWN
 		else:
 			if aim_up or aiming:
-				# instant enter shooting state when aiming
 				shooting = true
 				_change_state(_shoot_state_for_motion())
 			else:
@@ -324,16 +277,14 @@ func _handle_input(delta: float) -> void:
 	else:
 		coyote_timer = max(coyote_timer - delta, 0)
 
-	# buffered jump from ground (first jump)
 	if jump_buffer_timer > 0 and not is_dashing and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
 		jumps_left -= 1
 		jump_buffer_timer = 0
 		coyote_timer = 0
 		is_jumping = true
-		aim_up = false  # stop aiming up when jumping
+		aim_up = false 
 		_change_state(STATE_JUMP)
 		_apply_jump_velocity()
-	# immediate double-jump
 	elif Input.is_action_just_pressed("Jump") and jumps_left > 0 and not is_dashing:
 		jumps_left -= 1
 		is_jumping = true
@@ -388,12 +339,10 @@ func _apply_jump_velocity() -> void:
 	jump_hold_timer = JUMP_HOLD_TIME
 
 func _apply_jump_instant() -> void:
-	# double-jump immediate
 	velocity.y = DOUBLE_JUMP_VELOCITY
 
 func _apply_gravity(delta: float) -> void:
 	if not is_on_floor():
-		# reduced gravity while holding jump (for variable height)
 		if jump_held and jump_hold_timer > 0 and velocity.y < 0:
 			velocity += GRAVITY_VELOCITY * HOLD_GRAVITY_MULT * delta
 			jump_hold_timer = max(jump_hold_timer - delta, 0)
@@ -403,7 +352,6 @@ func _apply_gravity(delta: float) -> void:
 				jump_hold_timer = 0
 
 func _handle_horizontal() -> void:
-	# if crouching we don't move horizontally
 	if is_crouching:
 		velocity.x = 0
 		return
@@ -452,7 +400,7 @@ func _select_state_from_motion() -> void:
 			_change_state(STATE_WALK)
 
 # ----------------------------
-# Animation & State change (centralized)
+# Animation & State change ---
 # ----------------------------
 func _change_state(new_state: int) -> void:
 	if new_state == state:
@@ -471,96 +419,92 @@ func _change_state(new_state: int) -> void:
 		STATE_FALL:
 			_play_anim_with_aim("Fall")
 		STATE_DASH:
-			_play_anim_with_aim("Dash")
+			_require_play("Dash")
 		STATE_AIM:
-			_play_anim_with_aim(_get_motion_name_from_velocity())
-		STATE_AIM_UP:
-			# Prefer crouch-specific AimUp animations when crouching,
-			# otherwise try AimUp+motion then AimUp, then fallback.
 			var motion := _get_motion_name_from_velocity()
-
-			# 1) If crouching, try crouch-aim-up variants first
 			if is_crouching:
-				# Try several likely names (CrouchAimUpRun/CrouchAimUp etc.)
-				if _try_play_any_animation(["CrouchAimUp" + motion, "CrouchAimUp", "CrouchAimUpIdle"]):
-					return
+				_require_play("CrouchAimIdle")
+			else:
+				_require_play("Aim" + motion)
+		STATE_AIM_UP:
+			var motion := _get_motion_name_from_velocity()
+			if motion == "Jump" or motion == "Fall":
+				_require_play(motion)
+			else:
+				if is_crouching:
+					_require_play("CrouchAimUpIdle")
+				else:
+					_require_play("AimUp" + motion)
 
-			# 2) Try non-crouch AimUp motion & AimUp itself
-			if _try_play_any_animation(["AimUp" + motion, "AimUp"]):
-				return
-
-			# 3) Fallback to generic aim/play using existing helper (will try Crouch/Aim/etc.)
-			_play_anim_with_aim(motion)
-
-		# Generic shooting state - fallback logic handled by helper
 		STATE_SHOOT:
 			_shot_fired_in_animation = false
 			var motion := _get_motion_name_from_velocity()
-			# prefer crouch-specific first (helper handles this)
-			if not _play_shoot_variant("Shoot", motion):
-				_play_anim_with_aim(motion)
-
+			if is_crouching:
+				_require_play("CrouchShoot" + motion)
+			else:
+				_require_play("Shoot" + motion)
 		STATE_SHOOT_IDLE:
-			if not _play_shoot_variant("ShootIdle", "Idle"):
-				if not _try_play_any_animation(["Shoot", "ShootIdle"]):
-					_play_anim_with_aim("Idle")
-
+			_shot_fired_in_animation = false
+			if is_crouching:
+				_require_play("CrouchShootIdle")
+			else:
+				_require_play("ShootIdle")
 		STATE_SHOOT_WALK:
-			if not _play_shoot_variant("ShootWalk", "Walk"):
-				if not _try_play_any_animation(["Shoot", "ShootWalk"]):
-					_play_anim_with_aim("Walk")
-
+			_shot_fired_in_animation = false
+			if is_crouching:
+				_require_play("CrouchShootWalk")
+			else:
+				_require_play("ShootWalk")
 		STATE_SHOOT_RUN:
-			if not _play_shoot_variant("ShootRun", "Run"):
-				if not _try_play_any_animation(["Shoot", "ShootRun"]):
-					_play_anim_with_aim("Run")
-
+			_shot_fired_in_animation = false
+			if is_crouching:
+				_require_play("CrouchShootRun")
+			else:
+				_require_play("ShootRun")
 		STATE_SHOOT_JUMP:
-			if not _play_shoot_variant("ShootJump", "Jump"):
-				if not _try_play_any_animation(["Shoot", "ShootJump"]):
-					_play_anim_with_aim("Jump")
-
+			_shot_fired_in_animation = false
+			if is_crouching:
+				_require_play("CrouchShootJump")
+			else:
+				_require_play("ShootJump")
 		STATE_SHOOT_FALL:
-			if not _play_shoot_variant("ShootFall", "Fall"):
-				if not _try_play_any_animation(["Shoot", "ShootFall"]):
-					_play_anim_with_aim("Fall")
-
-		# Aim-Up shooting set: prefer ShootUp variants
+			_shot_fired_in_animation = false
+			if is_crouching:
+				_require_play("CrouchShootFall")
+			else:
+				_require_play("ShootFall")
 		STATE_SHOOT_UP:
 			_shot_fired_in_animation = false
 			var motion_up := _get_motion_name_from_velocity()
 			if is_crouching:
-				if _try_play_any_animation([
-					"CrouchShootUp",
-				]):
-					return
-
-			if _try_play_any_animation(["ShootUp" + motion_up, "ShootUp", "ShootUpIdle"]):
-				return
-
-			# 3) Fallback to the generic shoot variant logic (this will try other crouch/shoot fallbacks)
-			if not _play_shoot_variant("ShootUp", motion_up, true):
-				_play_anim_with_aim(motion_up)
-
+				_require_play("CrouchShootUp" + motion_up)
+			else:
+				_require_play("ShootUp" + motion_up)
 		STATE_SHOOT_UP_IDLE:
-			if not _try_play_any_animation(["CrouchShootUp", "ShootUpIdle", "ShootUp", "Shoot"]):
-				_play_anim_with_aim("Idle")
-
+			if is_crouching:
+				_require_play("CrouchShootUpIdle")
+			else:
+				_require_play("ShootUpIdle")
 		STATE_SHOOT_UP_WALK:
-			if not _try_play_any_animation(["CrouchShootUpWalk", "ShootUpWalk", "ShootUp", "Shoot"]):
-				_play_anim_with_aim("Walk")
-
+			if is_crouching:
+				_require_play("CrouchShootUpWalk")
+			else:
+				_require_play("ShootUpWalk")
 		STATE_SHOOT_UP_RUN:
-			if not _try_play_any_animation(["CrouchShootUpRun", "ShootUpRun", "ShootUp", "Shoot"]):
-				_play_anim_with_aim("Run")
-
+			if is_crouching:
+				_require_play("CrouchShootUpRun")
+			else:
+				_require_play("ShootUpRun")
 		STATE_SHOOT_UP_JUMP:
-			if not _try_play_any_animation(["CrouchShootUpJump", "ShootUpJump", "ShootUp", "Shoot"]):
-				_play_anim_with_aim("Jump")
-
+			if is_crouching:
+				_require_play("CrouchShootUpJump")
+			else:
+				_require_play("ShootUpJump")
 		STATE_SHOOT_UP_FALL:
-			if not _try_play_any_animation(["CrouchShootUpFall", "ShootUpFall", "ShootUp", "Shoot"]):
-				_play_anim_with_aim("Fall")
+			if is_crouching:
+				_require_play("CrouchShootUpFall")
+			else:
+				_require_play("ShootUpFall")
 
 # map current motion -> shoot state (respects aim_up)
 func _shoot_state_for_motion() -> int:
@@ -617,7 +561,6 @@ func _on_animation_finished() -> void:
 		shooting = false
 		_shot_fired_in_animation = false
 
-		# resume proper visual state
 		if is_dashing:
 			animated_sprite.play("Dash")
 		elif aim_up:
@@ -632,9 +575,7 @@ func _on_animation_finished() -> void:
 				_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
 
 func _on_frame_changed() -> void:
-	# handle pre-aim -> shot transitions and the timed pre-aim frames
 	if pre_aiming:
-		# if aim state changed into aiming while pre-aiming, start shooting immediately
 		if aim_up or aiming:
 			pre_aiming = false
 			shooting = true
@@ -648,7 +589,6 @@ func _on_frame_changed() -> void:
 			_change_state(_shoot_state_for_motion())
 			return
 
-	# When a shoot animation plays, ensure only one bullet spawns per animation
 	var anim_name := animated_sprite.animation
 	if shooting and anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
 		_shot_fired_in_animation = true
@@ -658,7 +598,6 @@ func _on_frame_changed() -> void:
 # Damage / hit
 # ----------------------------
 func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback_strength: float = -1.0) -> void:
-	# invulnerable while sliding by design
 	if is_dashing:
 		return
 
@@ -773,13 +712,10 @@ func _update_muzzle_transform() -> void:
 	if not muzzle:
 		return
 
-	# base offsets cached at ready
 	var y_offset := _muzzle_base_offset.y
-	# small visual bump down while crouching
 	if is_crouching:
 		y_offset += 6
 
-	# regular muzzle hidden when aiming up
 	if aim_up:
 		y_offset -= 6
 		muzzle.visible = false
@@ -791,7 +727,6 @@ func _update_muzzle_transform() -> void:
 	muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
 	muzzle.scale.y = _muzzle_base_scale.y
 
-	# muzzle_up is mirrored so it stays on the correct side
 	if muzzle_up:
 		if aim_up:
 			muzzle_up.visible = true
