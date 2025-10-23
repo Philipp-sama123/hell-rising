@@ -1,0 +1,30 @@
+The purchase of this asset grants you a license to use it on any type of project without limitations, including commercial projects, but does not grant you the right to sell or distribute in any way the content of this asset pack, this right belongs exclusively to the author. Likewise, it is not allowed to use the art of these assets for AI purposes or to create NFTs.
+
+All content in this folder has been created by Isra Maraver AKA ismartal
+
+Email: isramara@proton.me
+
+Discord: ismartal
+
+This pack contains a total of 100 Pixel Art 2D VFX.
+
+20 Electricity
+20 Energy
+20 Fire
+20 Liquid
+20 Smoke
+
+Texture and sprite dimensions (all sizes are in pixels):
+
+All sprites sheets are 2240x1280 and cell size 64x64
+
+
+
+
+
+
+
+
+
+
+
