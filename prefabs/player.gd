@@ -604,7 +604,7 @@ func _update_muzzle_transform() -> void:
 		if aim_up and not is_crouching:
 			muzzle_up.visible = true
 			var up_y := _muzzle_up_base_offset.y
-			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir
+			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir # shoot up is turned
 			muzzle_up.position.y = up_y
 			muzzle_up.scale.x = _muzzle_up_base_scale.x * float(facing_dir)
 			muzzle_up.scale.y = _muzzle_up_base_scale.y
@@ -627,7 +627,7 @@ func _update_muzzle_transform() -> void:
 
 	if muzzle_up_crouch:
 		muzzle_up_crouch.visible = is_crouching and aim_up
-		muzzle_up_crouch.position.x = _muzzle_up_crouch_base_offset.x * facing_dir
+		muzzle_up_crouch.position.x = _muzzle_up_crouch_base_offset.x * -facing_dir # shoot up is turned
 		muzzle_up_crouch.position.y = _muzzle_up_crouch_base_offset.y
 		muzzle_up_crouch.scale.x = _muzzle_up_crouch_base_scale.x * float(facing_dir)
 		muzzle_up_crouch.scale.y = _muzzle_up_crouch_base_scale.y
