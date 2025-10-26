@@ -1,9 +1,6 @@
 extends CharacterBody2D
 class_name player
 
-# ----------------------------
-# Tunables
-# ----------------------------
 @export var WALK_SPEED: float = 30.0
 @export var RUN_SPEED: float = 100.0
 @export var DASH_SPEED: float = 500.0
@@ -26,9 +23,9 @@ class_name player
 
 @export var BulletScene: PackedScene
 
-# ----------------------------
-# States (already refactored by you — kept as-is)
-# ----------------------------
+# ----------
+# States ---
+# ----------
 enum {
 	STATE_IDLE,
 	STATE_WALK,
@@ -103,18 +100,22 @@ var _STATE_ANIM: Dictionary = {
 	STATE_SHOOT_DASH: "ShootDash"
 }
 
-# ----------------------------
-# Node references
-# ----------------------------
+# -------------------
+# Node references ---
+# -------------------
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var muzzle: Node2D = $Muzzle
 @onready var normal_shape: CollisionShape2D = $NormalShape
 @onready var slide_shape: CollisionShape2D = $SlideShape
-@onready var muzzle_up: Node2D = $"MuzzleUp"
 
-# ----------------------------
-# Runtime state
-# ----------------------------
+@onready var muzzle_up: Node2D = $"MuzzleUp"
+@onready var muzzle_dash: Node2D = $"MuzzleDash"
+@onready var muzzle_crouch: Node2D = $"MuzzleCrouch"
+@onready var muzzle_up_crouch: Node2D = $"MuzzleUpCrouch"
+
+# -----------------
+# Runtime state ---
+# -----------------
 var state: int = STATE_IDLE
 var facing_dir: int = 1
 
@@ -151,10 +152,16 @@ var _muzzle_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_base_scale: Vector2 = Vector2.ONE
 var _muzzle_up_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_up_base_scale: Vector2 = Vector2.ONE
+var _muzzle_dash_base_offset: Vector2 = Vector2.ZERO
+var _muzzle_dash_base_scale: Vector2 = Vector2.ONE
+var _muzzle_crouch_base_offset: Vector2 = Vector2.ZERO
+var _muzzle_crouch_base_scale: Vector2 = Vector2.ONE
+var _muzzle_up_crouch_base_offset: Vector2 = Vector2.ZERO
+var _muzzle_up_crouch_base_scale: Vector2 = Vector2.ONE
 
-# ----------------------------
-# _ready
-# ----------------------------
+# ----------
+# _ready ---
+# ----------
 func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
@@ -166,15 +173,25 @@ func _ready() -> void:
 		_muzzle_up_base_offset = Vector2(abs(muzzle_up.position.x), muzzle_up.position.y)
 		_muzzle_up_base_scale = muzzle_up.scale.abs()
 
+	if muzzle_dash:
+		_muzzle_dash_base_offset = Vector2(abs(muzzle_dash.position.x), muzzle_dash.position.y)
+		_muzzle_dash_base_scale = muzzle_dash.scale.abs()
+	if muzzle_crouch:
+		_muzzle_crouch_base_offset = Vector2(abs(muzzle_crouch.position.x), muzzle_crouch.position.y)
+		_muzzle_crouch_base_scale = muzzle_crouch.scale.abs()
+	if muzzle_up_crouch:
+		_muzzle_up_crouch_base_offset = Vector2(abs(muzzle_up_crouch.position.x), muzzle_up_crouch.position.y)
+		_muzzle_up_crouch_base_scale = muzzle_up_crouch.scale.abs()
+
 	_hit_timer = Timer.new()
 	_hit_timer.one_shot = true
 	add_child(_hit_timer)
 	_hit_timer.wait_time = HIT_STUN_TIME
 	_hit_timer.connect("timeout", Callable(self, "_on_hit_recovered"))
 
-# ----------------------------
-# Main loop
-# ----------------------------
+# -------------
+# Main loop ---
+# -------------
 func _physics_process(delta: float) -> void:
 	_slide_shoot_cd = max(0.0, _slide_shoot_cd - delta)
 
@@ -207,9 +224,10 @@ func _physics_process(delta: float) -> void:
 func _can_change_state() -> bool:
 	return not is_dashing and not is_hit
 
-# ----------------------------
-# Input handling (cleaner)
-# ----------------------------
+# ------------------
+# Input handling ---
+# ------------------
+
 func _handle_input(delta: float) -> void:
 	# update facing
 	var axis_dir := int(Input.get_axis("Left", "Right"))
@@ -233,8 +251,8 @@ func _handle_input(delta: float) -> void:
 
 	_update_muzzle_transform()
 
-	# Dash (can't start while shooting or crouching)
-	if Input.is_action_just_pressed("Dash") and not shooting and not is_crouching:
+	# Dash: can't start while shooting or crouching
+	if Input.is_action_just_pressed("Dash") and not shooting and not is_crouching and not is_hit:
 		_start_dash()
 
 	# Shoot: immediate, or slide-shoot if dashing
@@ -283,9 +301,9 @@ func _handle_input(delta: float) -> void:
 
 	jump_held = Input.is_action_pressed("Jump")
 
-# ----------------------------
-# Dash / slide
-# ----------------------------
+# ----------------
+# Dash / slide ---
+# ----------------
 func _start_dash() -> void:
 	velocity.x = facing_dir * DASH_SPEED
 	velocity.y = 0
@@ -434,9 +452,9 @@ func _air_state_for_shoot_or_aim(airborne_up: bool) -> int:
 		return STATE_AIM_JUMP if airborne_up else STATE_AIM_FALL
 	return STATE_JUMP if airborne_up else STATE_FALL
 
-# ----------------------------
-# Animation handling
-# ----------------------------
+# ----------------------
+# Animation handling ---
+# ----------------------
 func _require_play(_name: String) -> void:
 	if not animated_sprite:
 		push_error("AnimatedSprite2D node missing (animated_sprite is null).")
@@ -458,9 +476,9 @@ func _change_state(new_state: int) -> void:
 		return
 	_require_play(anim_name)
 
-# ----------------------------
-# Damage / hit
-# ----------------------------
+# ----------------
+# Damage / hit ---
+# ----------------
 func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback_strength: float = -1.0) -> void:
 	if is_dashing:
 		return
@@ -497,9 +515,9 @@ func _restore_color() -> void:
 	if animated_sprite:
 		animated_sprite.modulate = Color(1, 1, 1)
 
-# ----------------------------
-# Slide-shoot / bullets
-# ----------------------------
+# -------------------------
+# Slide-shoot / bullets ---
+# -------------------------
 func _do_slide_shoot() -> void:
 	_spawn_bullet_from_muzzle()
 	_shot_fired_in_animation = true
@@ -520,11 +538,23 @@ func _spawn_bullet_from_muzzle() -> void:
 	if not b:
 		return
 
-	var spawn_pos: Vector2 = global_position + Vector2(facing_dir * 12, -4)
-	if aim_up and muzzle_up:
-		spawn_pos = muzzle_up.global_position
+	var chosen_muzzle: Node2D = null
+
+	if is_dashing and muzzle_dash:
+		chosen_muzzle = muzzle_dash
+	elif is_crouching and aim_up and muzzle_up_crouch:
+		chosen_muzzle = muzzle_up_crouch
+	elif is_crouching and muzzle_crouch:
+		chosen_muzzle = muzzle_crouch
+	elif aim_up and muzzle_up:
+		chosen_muzzle = muzzle_up
 	elif muzzle:
-		spawn_pos = muzzle.global_position
+		chosen_muzzle = muzzle
+
+	# fallback: compute a reasonable spawn position if no node present
+	var spawn_pos: Vector2 = global_position + Vector2(facing_dir * 12, -4)
+	if chosen_muzzle:
+		spawn_pos = chosen_muzzle.global_position
 
 	get_tree().current_scene.add_child(b)
 	b.global_position = spawn_pos
@@ -535,6 +565,7 @@ func _spawn_bullet_from_muzzle() -> void:
 		b.set_shooter_owner(self)
 
 	var dir_vec := Vector2(facing_dir, 0)
+	# aim-up should point straight up regardless of facing, but for a crouch-aim-up we also want up
 	if aim_up:
 		dir_vec = Vector2(0, -1)
 
@@ -549,16 +580,17 @@ func _spawn_bullet_from_muzzle() -> void:
 	if b is Node2D:
 		b.rotation = dir_vec.angle()
 
-# ----------------------------
-# Muzzle transform update
-# ----------------------------
+# ---------------------------
+# Muzzle transform update ---
+# ---------------------------
 func _update_muzzle_transform() -> void:
+	# MAIN muzzle (used while standing / walking / run)
 	if muzzle:
 		var y_offset := _muzzle_base_offset.y
 		if is_crouching:
 			y_offset += 6
 		if aim_up:
-			y_offset -= 6
+			# hide the forward muzzle when aiming up
 			muzzle.visible = false
 		else:
 			muzzle.visible = true
@@ -569,20 +601,41 @@ func _update_muzzle_transform() -> void:
 		muzzle.scale.y = _muzzle_base_scale.y
 
 	if muzzle_up:
-		if aim_up:
+		if aim_up and not is_crouching:
 			muzzle_up.visible = true
-			var up_y := _muzzle_up_base_offset.y - 6
+			var up_y := _muzzle_up_base_offset.y
 			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir
-			muzzle_up.position.y = up_y + (6 if is_crouching else 0)
+			muzzle_up.position.y = up_y
 			muzzle_up.scale.x = _muzzle_up_base_scale.x * float(facing_dir)
 			muzzle_up.scale.y = _muzzle_up_base_scale.y
 		else:
 			muzzle_up.visible = false
-	
 
-# ----------------------------
-# Animation signals
-# ----------------------------
+	if muzzle_dash:
+		muzzle_dash.visible = is_dashing
+		muzzle_dash.position.x = _muzzle_dash_base_offset.x * facing_dir
+		muzzle_dash.position.y = _muzzle_dash_base_offset.y
+		muzzle_dash.scale.x = _muzzle_dash_base_scale.x * float(facing_dir)
+		muzzle_dash.scale.y = _muzzle_dash_base_scale.y
+
+	if muzzle_crouch:
+		muzzle_crouch.visible = is_crouching and not aim_up
+		muzzle_crouch.position.x = _muzzle_crouch_base_offset.x * facing_dir
+		muzzle_crouch.position.y = _muzzle_crouch_base_offset.y
+		muzzle_crouch.scale.x = _muzzle_crouch_base_scale.x * float(facing_dir)
+		muzzle_crouch.scale.y = _muzzle_crouch_base_scale.y
+
+	if muzzle_up_crouch:
+		muzzle_up_crouch.visible = is_crouching and aim_up
+		muzzle_up_crouch.position.x = _muzzle_up_crouch_base_offset.x * facing_dir
+		muzzle_up_crouch.position.y = _muzzle_up_crouch_base_offset.y
+		muzzle_up_crouch.scale.x = _muzzle_up_crouch_base_scale.x * float(facing_dir)
+		muzzle_up_crouch.scale.y = _muzzle_up_crouch_base_scale.y
+
+# ---------------------
+# Animation signals ---
+# ---------------------
+
 func _on_animation_finished() -> void:
 	var a := animated_sprite.animation
 	is_hit = false
