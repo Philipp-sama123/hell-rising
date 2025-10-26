@@ -1,9 +1,6 @@
 extends CharacterBody2D
 class_name player
 
-# ----------------------------
-# Exports
-# ----------------------------
 @export var WALK_SPEED: float = 30.0
 @export var RUN_SPEED: float = 100.0
 @export var DASH_SPEED: float = 500.0
@@ -26,9 +23,6 @@ class_name player
 
 @export var BulletScene: PackedScene
 
-# ----------------------------
-# State enum (expanded)
-# ----------------------------
 enum {
 	STATE_IDLE,
 	STATE_WALK,
@@ -36,26 +30,82 @@ enum {
 	STATE_JUMP,
 	STATE_FALL,
 	STATE_DASH,
-	STATE_AIM,
-	STATE_SHOOT,
+
+	# aim variants
+	STATE_AIM_IDLE,
+	STATE_AIM_WALK,
+	STATE_AIM_RUN,
+	STATE_AIM_JUMP,
+	STATE_AIM_FALL,
+
+	# aim up variants
+	STATE_AIMUP_IDLE,
+	STATE_AIMUP_WALK,
+	STATE_AIMUP_RUN,
+
+	# crouch
+	STATE_CROUCH_IDLE,
+	STATE_CROUCH_AIM_IDLE,
+	STATE_CROUCH_AIMUP_IDLE,
+	STATE_CROUCH_SHOOT_IDLE,
+	STATE_CROUCH_SHOOTUP_IDLE,
+
+	# shoot
 	STATE_SHOOT_IDLE,
 	STATE_SHOOT_WALK,
 	STATE_SHOOT_RUN,
 	STATE_SHOOT_JUMP,
 	STATE_SHOOT_FALL,
 
-	STATE_AIM_UP,
-	STATE_SHOOT_UP,
-	STATE_SHOOT_UP_IDLE,
-	STATE_SHOOT_UP_WALK,
-	STATE_SHOOT_UP_RUN,
-	STATE_SHOOT_UP_JUMP,
-	STATE_SHOOT_UP_FALL,
+	# shoot up
+	STATE_SHOOTUP_IDLE,
+	STATE_SHOOTUP_WALK,
+	STATE_SHOOTUP_RUN,
+
+	# dash-shoot
+	STATE_SHOOT_DASH
 }
 
 # ----------------------------
-# Onready nodes
-# ----------------------------
+var _STATE_ANIM: Dictionary = {
+	STATE_IDLE: "Idle",
+	STATE_WALK: "Walk",
+	STATE_RUN: "Run",
+	STATE_JUMP: "Jump",
+	STATE_FALL: "Fall",
+	STATE_DASH: "Dash",
+
+	STATE_AIM_IDLE: "AimIdle",
+	STATE_AIM_WALK: "AimWalk",
+	STATE_AIM_RUN: "AimRun",
+	STATE_AIM_JUMP: "AimJump",
+	STATE_AIM_FALL: "AimFall",
+
+	# aim-up ground-only
+	STATE_AIMUP_IDLE: "AimUpIdle",
+	STATE_AIMUP_WALK: "AimUpWalk",
+	STATE_AIMUP_RUN: "AimUpRun",
+
+	# only idle-like crouch variants (no walk/run/jump/fall)
+	STATE_CROUCH_IDLE: "CrouchIdle",
+	STATE_CROUCH_AIM_IDLE: "CrouchAimIdle",
+	STATE_CROUCH_AIMUP_IDLE: "CrouchAimUpIdle",
+	STATE_CROUCH_SHOOT_IDLE: "CrouchShootIdle",
+	STATE_CROUCH_SHOOTUP_IDLE: "CrouchShootUpIdle",
+
+	STATE_SHOOT_IDLE: "ShootIdle",
+	STATE_SHOOT_WALK: "ShootWalk",
+	STATE_SHOOT_RUN: "ShootRun",
+	STATE_SHOOT_JUMP: "ShootJump",
+	STATE_SHOOT_FALL: "ShootFall",
+
+	STATE_SHOOTUP_IDLE: "ShootUpIdle",
+	STATE_SHOOTUP_WALK: "ShootUpWalk",
+	STATE_SHOOTUP_RUN: "ShootUpRun",
+
+	STATE_SHOOT_DASH: "ShootDash"
+}
+
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var muzzle: Node2D = $Muzzle
 @onready var normal_shape: CollisionShape2D = $NormalShape
@@ -152,8 +202,9 @@ func _physics_process(delta: float) -> void:
 	if velocity.y >= 0:
 		is_jumping = false
 
+	# when shooting, the concrete state mapper will choose the correct shoot state
 	if shooting:
-		_change_state(_shoot_state_for_motion())
+		_change_state(_state_for_motion_and_flags())
 		return
 
 	if pre_aiming:
@@ -162,51 +213,23 @@ func _physics_process(delta: float) -> void:
 	if not is_dashing and not is_hit:
 		_select_state_from_motion()
 
-	# prefer AimUp when requested (unless dashing/hit/shooting)
+	# prefer aim-up / aim when requested (choose concrete state)
 	if aim_up and not (is_dashing or is_hit or shooting or pre_aiming):
-		_change_state(STATE_AIM_UP)
+		_change_state(_state_for_motion_and_flags())
 	elif aiming and not (is_dashing or is_hit or shooting or pre_aiming):
-		_change_state(STATE_AIM)
+		_change_state(_state_for_motion_and_flags())
 
-func _require_play(name: String) -> void:
+func _require_play(_name: String) -> void:
 	if not animated_sprite:
 		push_error("AnimatedSprite2D node missing (animated_sprite is null).")
 		assert(false, "AnimatedSprite2D node missing.")
 	if not animated_sprite.sprite_frames:
 		push_error("sprite_frames missing on AnimatedSprite2D.")
 		assert(false, "sprite_frames missing.")
-		assert(animated_sprite.sprite_frames.has_animation(name), "Missing animation: " + name)
 	# flip before play so animation uses correct facing immediately
 	animated_sprite.flip_h = facing_dir > 0
-	animated_sprite.play(name)
-
-func _play_anim_with_aim(base_name: String) -> void:
-	var motion := base_name  # e.g. "Idle","Walk","Run","Jump","Fall","Dash"
-	var anim_name: String
-	
-	if base_name == "Jump" or base_name == "Fall":
-		if aiming and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim" + base_name):
-			_require_play("Aim" + base_name)
-			return
-		_require_play(base_name)
-		return
-
-	if is_crouching:
-		if aim_up:
-			anim_name = "CrouchAimUp" + motion
-		elif aiming:
-			anim_name = "CrouchAim" + motion
-		else:
-			anim_name = "Crouch" + motion
-	else:
-		if aim_up:
-			anim_name = "AimUp" + motion
-		elif aiming:
-			anim_name = "Aim" + motion
-		else:
-			anim_name = motion  # e.g. "Idle", "Walk"
-
-	_require_play(anim_name)
+	assert(animated_sprite.sprite_frames.has_animation(_name), "Missing animation: " + _name)
+	animated_sprite.play(_name)
 
 # ----------------------------
 # Input handling
@@ -219,13 +242,19 @@ func _handle_input(delta: float) -> void:
 	if animated_sprite:
 		animated_sprite.flip_h = facing_dir > 0
 
-	# Crouch handling
+	# read aiming states early (so crouch logic below sees the current aim state)
+	aiming = Input.is_action_pressed("Aim")
+	aim_up = Input.is_action_pressed("Up") and is_on_floor() and not is_dashing
+
+	# Crouch handling (hold-to-crouch). keep on-floor / not-dashing / not-hit requirement.
 	var crouch_pressed := Input.is_action_pressed("Crouch")
-	var want_crouch := crouch_pressed and is_on_floor() and not is_dashing and not is_hit
+	var want_crouch := crouch_pressed and is_on_floor() and not is_dashing
 	if want_crouch != is_crouching:
 		is_crouching = want_crouch
 		if is_crouching:
 			velocity.x = 0
+		# refresh current motion animation so the crouch variant plays
+		_change_state(_state_for_motion_and_flags())
 
 	_update_muzzle_transform()
 
@@ -233,35 +262,17 @@ func _handle_input(delta: float) -> void:
 	if Input.is_action_just_pressed("Dash") and not shooting and not is_crouching:
 		_start_dash()
 
-	# Aim & AimUp (Up is a dedicated Input action)
-	aiming = Input.is_action_pressed("Aim")
-	aim_up = Input.is_action_pressed("Up") and is_on_floor() and not is_dashing
-
-	# Shoot handling
-	if Input.is_action_just_pressed("Shoot") and not shooting and not pre_aiming:
+	# Shoot handling — immediate shooting, no pre-aiming delay
+	if Input.is_action_just_pressed("Shoot") and not shooting:
 		if is_dashing and _slide_shoot_cd <= 0.0:
 			_do_slide_shoot()
 			_slide_shoot_cd = SLIDE_SHOOT_COOLDOWN
 		else:
-			if aim_up or aiming:
-				shooting = true
-				_change_state(_shoot_state_for_motion())
-			else:
-				# pre-aim before shot
-				pre_aiming = true
-				pre_aim_frames = PRE_AIM_FRAME_COUNT
-				var base_motion := _get_motion_name_from_velocity()
-				var aim_anim := ( "AimUp" + base_motion if aim_up else "Aim" + base_motion )
-				if animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation(aim_anim):
-					animated_sprite.play(aim_anim)
-				elif aim_up and animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("AimUp"):
-					animated_sprite.play("AimUp")
-				elif animated_sprite and animated_sprite.sprite_frames and animated_sprite.sprite_frames.has_animation("Aim"):
-					animated_sprite.play("Aim")
-				else:
-					_change_state(STATE_AIM)
+			_shot_fired_in_animation = false
+			shooting = true
+			_change_state(_state_for_motion_and_flags())
 
-	# pre-aim cancels while dashing or hit
+	# pre-aim cancels while dashing or hit (kept harmless if pre_aiming is never set)
 	if is_dashing or is_hit:
 		pre_aiming = false
 
@@ -310,13 +321,9 @@ func _start_dash() -> void:
 
 func _end_dash() -> void:
 	is_dashing = false
-	if is_on_floor():
-		velocity.x = 0
-		var abs_vx = abs(velocity.x)
-		_change_state(STATE_IDLE if abs_vx == 0 else STATE_WALK)
-	else:
-		_change_state(STATE_FALL)
 	_set_collision_mode(false)
+	# after dash end pick proper concrete state
+	_change_state(_state_for_motion_and_flags())
 
 func _set_collision_mode(slide: bool) -> void:
 	slide_shape.set_deferred("disabled", not slide)
@@ -378,221 +385,102 @@ func _handle_landing() -> void:
 		if is_dashing:
 			return
 
-		if shooting:
-			_change_state(_shoot_state_for_motion())
-		elif aim_up:
-			_change_state(STATE_AIM_UP)
-		elif aiming:
-			_change_state(STATE_AIM)
-		else:
-			_change_state(STATE_IDLE if velocity.x == 0 else STATE_WALK)
+		_change_state(_state_for_motion_and_flags())
 
 func _select_state_from_motion() -> void:
-	var abs_vx = abs(velocity.x)
-	if not is_on_floor():
-		_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
-	else:
-		if abs_vx == 0:
-			_change_state(STATE_IDLE)
-		elif abs_vx > WALK_SPEED:
-			_change_state(STATE_RUN)
-		else:
-			_change_state(STATE_WALK)
+	var target := _state_for_motion_and_flags()
+	_change_state(target)
 
 # ----------------------------
 # Animation & State change ---
 # ----------------------------
 func _change_state(new_state: int) -> void:
+	# debug print left in for traceability
+	# print("--- DEBUG --- change_state: ", new_state)
 	if new_state == state:
 		return
+
 	state = new_state
 
-	match state:
-		STATE_IDLE:
-			_play_anim_with_aim("Idle")
-		STATE_WALK:
-			_play_anim_with_aim("Walk")
-		STATE_RUN:
-			_play_anim_with_aim("Run")
-		STATE_JUMP:
-			_play_anim_with_aim("Jump")
-		STATE_FALL:
-			_play_anim_with_aim("Fall")
-		STATE_DASH:
-			_require_play("Dash")
-		STATE_AIM:
-			var motion := _get_motion_name_from_velocity()
-			if is_crouching:
-				_require_play("CrouchAimIdle")
-			else:
-				_require_play("Aim" + motion)
-		STATE_AIM_UP:
-			var motion := _get_motion_name_from_velocity()
-			if motion == "Jump" or motion == "Fall":
-				_require_play(motion)
-			else:
-				if is_crouching:
-					_require_play("CrouchAimUpIdle")
-				else:
-					_require_play("AimUp" + motion)
+	# lookup and play
+	var anim_name = _STATE_ANIM.get(state, "")
+	if anim_name == "":
+		push_warning("No animation mapping for state: " + str(state))
+		return
+	_require_play(anim_name)
 
-		STATE_SHOOT:
-			_shot_fired_in_animation = false
-			var motion := _get_motion_name_from_velocity()
-			if is_crouching:
-				_require_play("CrouchShoot" + motion)
-			else:
-				_require_play("Shoot" + motion)
-		STATE_SHOOT_IDLE:
-			_shot_fired_in_animation = false
-			if is_crouching:
-				_require_play("CrouchShootIdle")
-			else:
-				_require_play("ShootIdle")
-		STATE_SHOOT_WALK:
-			_shot_fired_in_animation = false
-			if is_crouching:
-				_require_play("CrouchShootWalk")
-			else:
-				_require_play("ShootWalk")
-		STATE_SHOOT_RUN:
-			_shot_fired_in_animation = false
-			if is_crouching:
-				_require_play("CrouchShootRun")
-			else:
-				_require_play("ShootRun")
-		STATE_SHOOT_JUMP:
-			_shot_fired_in_animation = false
-			if is_crouching:
-				_require_play("CrouchShootJump")
-			else:
-				_require_play("ShootJump")
-		STATE_SHOOT_FALL:
-			_shot_fired_in_animation = false
-			if is_crouching:
-				_require_play("CrouchShootFall")
-			else:
-				_require_play("ShootFall")
-		STATE_SHOOT_UP:
-			_shot_fired_in_animation = false
-			var motion_up := _get_motion_name_from_velocity()
-			if is_crouching:
-				_require_play("CrouchShootUp" + motion_up)
-			else:
-				_require_play("ShootUp" + motion_up)
-		STATE_SHOOT_UP_IDLE:
-			if is_crouching:
-				_require_play("CrouchShootUpIdle")
-			else:
-				_require_play("ShootUpIdle")
-		STATE_SHOOT_UP_WALK:
-			if is_crouching:
-				_require_play("CrouchShootUpWalk")
-			else:
-				_require_play("ShootUpWalk")
-		STATE_SHOOT_UP_RUN:
-			if is_crouching:
-				_require_play("CrouchShootUpRun")
-			else:
-				_require_play("ShootUpRun")
-		STATE_SHOOT_UP_JUMP:
-			if is_crouching:
-				_require_play("CrouchShootUpJump")
-			else:
-				_require_play("ShootUpJump")
-		STATE_SHOOT_UP_FALL:
-			if is_crouching:
-				_require_play("CrouchShootUpFall")
-			else:
-				_require_play("ShootUpFall")
-
-# map current motion -> shoot state (respects aim_up)
-func _shoot_state_for_motion() -> int:
-	var motion := _get_motion_name_from_velocity()
-	if aim_up:
-		match motion:
-			"Idle":
-				return STATE_SHOOT_UP_IDLE
-			"Walk":
-				return STATE_SHOOT_UP_WALK
-			"Run":
-				return STATE_SHOOT_UP_RUN
-			"Jump":
-				return STATE_SHOOT_UP_JUMP
-			"Fall":
-				return STATE_SHOOT_UP_FALL
-			_:
-				return STATE_SHOOT_UP
-	else:
-		match motion:
-			"Idle":
-				return STATE_SHOOT_IDLE
-			"Walk":
-				return STATE_SHOOT_WALK
-			"Run":
-				return STATE_SHOOT_RUN
-			"Jump":
-				return STATE_SHOOT_JUMP
-			"Fall":
-				return STATE_SHOOT_FALL
-			_:
-				return STATE_SHOOT
-
-func _get_motion_name_from_velocity() -> String:
+# map current motion -> explicit state (respects aim_up (ground-only), aiming, shooting, crouch)
+func _state_for_motion_and_flags() -> int:
+	# derive motion directly (no helper)
 	var abs_vx = abs(velocity.x)
-	if is_on_floor():
-		if abs_vx == 0:
-			return "Idle"
-		if abs_vx > WALK_SPEED:
-			return "Run"
-		return "Walk"
-	return "Jump" if velocity.y < 0 else "Fall"
+	var motion_is_idle = is_on_floor() and abs_vx < 0.01
+	var motion_is_walk = is_on_floor() and abs_vx >= 0.01 and abs_vx <= WALK_SPEED
+	var motion_is_run  = is_on_floor() and abs_vx > WALK_SPEED
+	var airborne_up = not is_on_floor() and velocity.y < 0
+	
+	# airborne branch
+	if not is_on_floor():
+		# shooting airborne?
+		if shooting:
+			return STATE_SHOOT_JUMP if airborne_up else STATE_SHOOT_FALL
+		# NOTE: aim_up is ignored in mid-air by design (no AimUp jump/fall)
+		if aiming:
+			return STATE_AIM_JUMP if airborne_up else STATE_AIM_FALL
+		# default airborne
+		return STATE_JUMP if airborne_up else STATE_FALL
 
-# ----------------------------
-# Animation signals
-# ----------------------------
-func _on_animation_finished() -> void:
-	var a := animated_sprite.animation
-	is_hit = false
-	is_jumping = false
+	# ground: CROUCH is simplified to only idle-like variants (no walk/run/jump/fall)
+	if is_crouching:
+		# priority: shoot > aim_up > aim > plain crouch idle
+		if shooting:
+			if aim_up:
+				return STATE_CROUCH_SHOOTUP_IDLE
+			return STATE_CROUCH_SHOOT_IDLE
+		if aim_up:
+			return STATE_CROUCH_AIMUP_IDLE
+		if aiming:
+			return STATE_CROUCH_AIM_IDLE
+		return STATE_CROUCH_IDLE
 
-	# When a shoot animation finishes, revert shooting
-	if a != "" and a.find("Shoot") != -1:
-		shooting = false
-		_shot_fired_in_animation = false
-
-		if is_dashing:
-			animated_sprite.play("Dash")
-		elif aim_up:
-			_change_state(STATE_AIM_UP)
-		elif aiming:
-			_change_state(STATE_AIM)
-		else:
-			if is_on_floor():
-				var abs_vx = abs(velocity.x)
-				_change_state(STATE_IDLE if abs_vx == 0 else (STATE_RUN if abs_vx > WALK_SPEED else STATE_WALK))
+	# ground, not crouching
+	if shooting:
+		# aim up variants (ground only)
+		if aim_up:
+			if motion_is_idle:
+				return STATE_SHOOTUP_IDLE
+			elif motion_is_walk:
+				return STATE_SHOOTUP_WALK
 			else:
-				_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
+				return STATE_SHOOTUP_RUN
+		# normal shoot
+		if motion_is_idle:
+			return STATE_SHOOT_IDLE
+		if motion_is_walk:
+			return STATE_SHOOT_WALK
+		if motion_is_run:
+			return STATE_SHOOT_RUN
+		return STATE_SHOOT_IDLE
 
-func _on_frame_changed() -> void:
-	if pre_aiming:
-		if aim_up or aiming:
-			pre_aiming = false
-			shooting = true
-			_change_state(_shoot_state_for_motion())
-			return
+	if aim_up:
+		if motion_is_idle:
+			return STATE_AIMUP_IDLE
+		if motion_is_walk:
+			return STATE_AIMUP_WALK
+		return STATE_AIMUP_RUN
 
-		pre_aim_frames -= 1
-		if pre_aim_frames <= 0:
-			pre_aiming = false
-			shooting = true
-			_change_state(_shoot_state_for_motion())
-			return
+	if aiming:
+		if motion_is_idle:
+			return STATE_AIM_IDLE
+		if motion_is_walk:
+			return STATE_AIM_WALK
+		return STATE_AIM_RUN
 
-	var anim_name := animated_sprite.animation
-	if shooting and anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
-		_shot_fired_in_animation = true
-		_spawn_bullet()
+	# plain motion states (ground)
+	if motion_is_idle:
+		return STATE_IDLE
+	if motion_is_walk:
+		return STATE_WALK
+	return STATE_RUN
 
 # ----------------------------
 # Damage / hit
@@ -631,17 +519,9 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 func _on_hit_recovered() -> void:
 	is_hit = false
 	if shooting:
-		_change_state(_shoot_state_for_motion())
-	elif aim_up:
-		_change_state(STATE_AIM_UP)
-	elif aiming:
-		_change_state(STATE_AIM)
+		_change_state(_state_for_motion_and_flags())
 	else:
-		if is_on_floor():
-			var abs_vx = abs(velocity.x)
-			_change_state(STATE_IDLE if abs_vx == 0 else (STATE_RUN if abs_vx > WALK_SPEED else STATE_WALK))
-		else:
-			_change_state(STATE_JUMP if velocity.y < 0 else STATE_FALL)
+		_change_state(_state_for_motion_and_flags())
 
 func _restore_color() -> void:
 	if animated_sprite:
@@ -737,3 +617,41 @@ func _update_muzzle_transform() -> void:
 			muzzle_up.scale.y = _muzzle_up_base_scale.y
 		else:
 			muzzle_up.visible = false
+
+# ----------------------------
+# Animation signals
+# ----------------------------
+func _on_animation_finished() -> void:
+	var a := animated_sprite.animation
+	is_hit = false
+	is_jumping = false
+
+	# When a shoot animation finishes, revert shooting
+	if a != "" and a.find("Shoot") != -1:
+		shooting = false
+		_shot_fired_in_animation = false
+
+		if is_dashing:
+			animated_sprite.play("Dash")
+		else:
+			_change_state(_state_for_motion_and_flags())
+
+func _on_frame_changed() -> void:
+	if pre_aiming:
+		if aim_up or aiming:
+			pre_aiming = false
+			shooting = true
+			_change_state(_state_for_motion_and_flags())
+			return
+
+		pre_aim_frames -= 1
+		if pre_aim_frames <= 0:
+			pre_aiming = false
+			shooting = true
+			_change_state(_state_for_motion_and_flags())
+			return
+
+	var anim_name := animated_sprite.animation
+	if shooting and anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
+		_shot_fired_in_animation = true
+		_spawn_bullet()
