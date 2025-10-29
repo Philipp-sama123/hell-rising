@@ -484,7 +484,8 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 		return
 
 	pre_aiming = false
-	is_hit = true
+	# ToDo: maybe reenable with probability
+	# is_hit = true
 	if _hit_timer:
 		_hit_timer.start(HIT_STUN_TIME)
 
@@ -505,7 +506,8 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 		dir_x = 1
 
 	var used_kb = knockback_strength if knockback_strength > 0.0 else hit_kb_strength
-	velocity.x = dir_x * used_kb
+	# ToDo: maybe reenable with probability
+	# velocity.x = dir_x * used_kb 
 
 func _on_hit_recovered() -> void:
 	is_hit = false

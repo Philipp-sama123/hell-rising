@@ -1,0 +1,129 @@
+[gd_scene load_steps=18 format=3 uid="uid://dikps4cqo8p2t"]
+
+[ext_resource type="Script" uid="uid://vesfkydy4u34" path="res://prefabs/exploding_enemy.gd" id="1_6g1y2"]
+[ext_resource type="Texture2D" uid="uid://bwdepyi70abcm" path="res://assets/HellAssetPack/GandalfHardcore The Damned Enemies and NPCs/Burning Skull.png" id="2_6g1y2"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_42bkp"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(0, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fvoof"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(64, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_dwlus"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(128, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fc6fe"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(192, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_77qxb"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(256, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_7g2nd"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(320, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ddtdu"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(384, 64, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0g16n"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(0, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_qge2m"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(64, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_oodkn"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(128, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_vrrk7"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(192, 0, 64, 64)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_8i58g"]
+atlas = ExtResource("2_6g1y2")
+region = Rect2(256, 0, 64, 64)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_vqhcy"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_42bkp")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fvoof")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_dwlus")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fc6fe")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_77qxb")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_7g2nd")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ddtdu")
+}],
+"loop": false,
+"name": &"Explode",
+"speed": 12.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_0g16n")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qge2m")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_oodkn")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_vrrk7")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_8i58g")
+}],
+"loop": true,
+"name": &"Fly",
+"speed": 12.0
+}]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_5cnl5"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_n70go"]
+radius = 15.033297
+
+[node name="EnemySkullRed" type="CharacterBody2D"]
+collision_layer = 4
+motion_mode = 1
+script = ExtResource("1_6g1y2")
+speed = 25.0
+health = 2
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+texture_filter = 1
+sprite_frames = SubResource("SpriteFrames_vqhcy")
+animation = &"Fly"
+frame_progress = 0.73777294
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_5cnl5")
+
+[node name="ExplosionArea" type="Area2D" parent="."]
+collision_layer = 4
+collision_mask = 3
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="ExplosionArea"]
+shape = SubResource("CircleShape2D_n70go")
