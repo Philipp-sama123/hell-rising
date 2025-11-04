@@ -2340,6 +2340,8 @@ tile_set = SubResource("TileSet_oktae")
 
 [node name="Player" parent="." instance=ExtResource("1_g2w4a")]
 position = Vector2(0, 8)
+floor_max_angle = 1.5707964
+safe_margin = 2.0
 DASH_SPEED = 170.0
 BULLET_SPEED = 175.0
 BulletScene = ExtResource("5_81352")

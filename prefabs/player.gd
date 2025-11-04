@@ -505,12 +505,14 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 	if dir_x == 0:
 		dir_x = 1
 
-	var used_kb = knockback_strength if knockback_strength > 0.0 else hit_kb_strength
+	var _used_kb = knockback_strength if knockback_strength > 0.0 else hit_kb_strength
 	# ToDo: maybe reenable with probability
-	# velocity.x = dir_x * used_kb 
+	# velocity.x = dir_x * _used_kb 
 
 func _on_hit_recovered() -> void:
 	is_hit = false
+	if is_dashing:
+		return
 	_change_state(_state_for_motion_and_flags())
 
 func _restore_color() -> void:
