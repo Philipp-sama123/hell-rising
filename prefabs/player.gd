@@ -148,6 +148,8 @@ var _slide_shoot_cd: float = 0.0
 var _slide_time_elapsed: float = 0.0
 
 var _shot_fired_in_animation: bool = false
+var _shooting_anim_playing: bool = false
+
 var _muzzle_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_base_scale: Vector2 = Vector2.ONE
 var _muzzle_up_base_offset: Vector2 = Vector2.ZERO
@@ -270,6 +272,7 @@ func _handle_input(delta: float) -> void:
 		pre_aiming = false
 
 	# Jump buffering & coyote
+	# NOTE: we still set the buffer on press, but we prevent consuming it while shooting
 	if Input.is_action_just_pressed("Jump"):
 		jump_buffer_timer = jump_buffer_time
 	else:
@@ -281,7 +284,8 @@ func _handle_input(delta: float) -> void:
 		coyote_timer = max(coyote_timer - delta, 0)
 
 	# consume buffered jump (first jump)
-	if jump_buffer_timer > 0 and not is_dashing and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
+	# BLOCK jump consumption while shooting (so shooting keeps playing until it finishes)
+	if jump_buffer_timer > 0 and not is_dashing and not shooting and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
 		jumps_left -= 1
 		jump_buffer_timer = 0
 		coyote_timer = 0
@@ -289,8 +293,8 @@ func _handle_input(delta: float) -> void:
 		aim_up = false
 		_change_state(STATE_JUMP)
 		_start_jump_sequence()
-	# double jump immediate
-	elif Input.is_action_just_pressed("Jump") and jumps_left > 0 and not is_dashing:
+	# double jump immediate (also blocked while shooting)
+	elif Input.is_action_just_pressed("Jump") and jumps_left > 0 and not is_dashing and not shooting:
 		jumps_left -= 1
 		is_jumping = true
 		velocity.y = 0
@@ -465,15 +469,31 @@ func _require_play(_name: String) -> void:
 	animated_sprite.flip_h = facing_dir > 0
 	assert(animated_sprite.sprite_frames.has_animation(_name), "Missing animation: " + _name)
 	animated_sprite.play(_name)
+	_shooting_anim_playing = _name.find("Shoot") != -1
 
 func _change_state(new_state: int) -> void:
 	if new_state == state:
 		return
-	state = new_state
-	var anim_name = _STATE_ANIM.get(state, "")
+
+	var anim_name = _STATE_ANIM.get(new_state, "")
 	if anim_name == "":
-		push_warning("--- ERROR ---No animation mapping for state: " + str(state))
+		push_warning("--- ERROR ---No animation mapping for state: " + str(new_state))
 		return
+
+	# If a shooting animation is already playing, and the new animation is also a Shoot variant,
+	# update state but don't restart the animation (prevents ShootJump<->ShootFall flicker).
+	var cur_anim := ""
+	if animated_sprite:
+		cur_anim = animated_sprite.animation
+
+	var cur_is_shoot := cur_anim != "" and cur_anim.find("Shoot") != -1
+	var new_is_shoot = anim_name.find("Shoot") != -1
+
+	if cur_is_shoot and new_is_shoot and _shooting_anim_playing:
+		state = new_state
+		return
+
+	state = new_state
 	_require_play(anim_name)
 
 # ----------------
@@ -526,6 +546,7 @@ func _do_slide_shoot() -> void:
 	_spawn_bullet_from_muzzle()
 	_shot_fired_in_animation = true
 	animated_sprite.play("ShootDash")
+	_shooting_anim_playing = true
 
 	var t = get_tree().create_timer(max(0.08, SLIDE_SHOOT_COOLDOWN))
 	t.timeout.connect(Callable(self, "_reset_shot_flag"))
@@ -642,17 +663,32 @@ func _update_muzzle_transform() -> void:
 
 func _on_animation_finished() -> void:
 	var a := animated_sprite.animation
-	is_hit = false
 	is_jumping = false
 
+	# If a Shoot animation finished, clear shooting flags and mark shooting anim not playing.
 	if a != "" and a.find("Shoot") != -1:
+		_shooting_anim_playing = false
 		shooting = false
 		_shot_fired_in_animation = false
+
+		# After shoot ends, if a jump was buffered while shooting, consume it now (if valid)
+		if jump_buffer_timer > 0 and not is_dashing and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
+			jumps_left -= 1
+			jump_buffer_timer = 0
+			coyote_timer = 0
+			is_jumping = true
+			aim_up = false
+			_change_state(STATE_JUMP)
+			_start_jump_sequence()
+			return
 
 		if is_dashing:
 			animated_sprite.play("Dash")
 		else:
 			_change_state(_state_for_motion_and_flags())
+		return
+
+	_change_state(_state_for_motion_and_flags())
 
 func _on_frame_changed() -> void:
 	# handle pre-aim frames
