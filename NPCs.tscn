@@ -1,4 +1,4 @@
-[gd_scene load_steps=544 format=3 uid="uid://d3u7lerjgf7cb"]
+[gd_scene load_steps=545 format=3 uid="uid://d3u7lerjgf7cb"]
 
 [ext_resource type="Texture2D" uid="uid://cale33usmwnjv" path="res://assets/ModernNPCs/Biker Girl sheet.png" id="1_3e003"]
 [ext_resource type="Texture2D" uid="uid://beld2w5k4gvt4" path="res://assets/ModernNPCs/Cheeky on floor sheet.png" id="1_cjd2r"]
@@ -34,6 +34,7 @@
 [ext_resource type="Texture2D" uid="uid://c0ycy2ouxdy0w" path="res://assets/HellAssetPack/GandalfHardcore The Damned Enemies and NPCs/Female Hell Giant.png" id="21_2ch00"]
 [ext_resource type="Texture2D" uid="uid://cg82r8f4io43u" path="res://assets/HellAssetPack/GandalfHardcore The Damned Enemies and NPCs/Old Demon.png" id="22_myba7"]
 [ext_resource type="Texture2D" uid="uid://bhc71jekjls7q" path="res://assets/ModernNPCs/Fluorescent sheet.png" id="23_in1ix"]
+[ext_resource type="Script" uid="uid://edhery3ieil3" path="res://npc.gd" id="35_0in1d"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_6cv5h"]
 atlas = ExtResource("1_3e003")
@@ -3824,3 +3825,4 @@ texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_foeb0")
 animation = &"YogaLady3_2"
 frame_progress = 0.25477055
+script = ExtResource("35_0in1d")

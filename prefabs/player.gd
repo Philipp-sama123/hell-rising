@@ -1,6 +1,9 @@
 extends CharacterBody2D
 class_name player
 
+# -------------------
+# Exports (tweakable)
+# -------------------
 @export var WALK_SPEED: float = 30.0
 @export var RUN_SPEED: float = 100.0
 @export var DASH_SPEED: float = 500.0
@@ -23,9 +26,13 @@ class_name player
 
 @export var BulletScene: PackedScene
 
-# ----------
-# States ---
-# ----------
+# Single global shot frame for all Shoot animations (0-based).
+# Change in the inspector if you want the bullet to spawn on a different frame.
+@export var SHOT_FRAME: int = 0
+
+# ----------------
+# Animation states
+# ----------------
 enum {
 	STATE_IDLE,
 	STATE_WALK,
@@ -101,21 +108,22 @@ var _STATE_ANIM: Dictionary = {
 }
 
 # -------------------
-# Node references ---
+# Node references
 # -------------------
 @onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var muzzle: Node2D = $Muzzle
-@onready var normal_shape: CollisionShape2D = $NormalShape
-@onready var slide_shape: CollisionShape2D = $SlideShape
-
 @onready var muzzle_up: Node2D = $"MuzzleUp"
 @onready var muzzle_dash: Node2D = $"MuzzleDash"
 @onready var muzzle_crouch: Node2D = $"MuzzleCrouch"
 @onready var muzzle_up_crouch: Node2D = $"MuzzleUpCrouch"
 
-# -----------------
-# Runtime state ---
-# -----------------
+@onready var normal_shape: CollisionShape2D = $NormalShape
+@onready var slide_shape: CollisionShape2D = $SlideShape
+@onready var head_shape: CollisionShape2D = $HeadShape
+
+# -------------------
+# Runtime variables
+# -------------------
 var state: int = STATE_IDLE
 var facing_dir: int = 1
 
@@ -123,14 +131,13 @@ var was_on_floor: bool = false
 var is_dashing: bool = false
 var is_jumping: bool = false
 var is_hit: bool = false
+var is_crouching: bool = false
 
 var aiming: bool = false
 var aim_up: bool = false
 var shooting: bool = false
 var pre_aiming: bool = false
 var pre_aim_frames: int = 0
-
-var is_crouching: bool = false
 
 const MAX_JUMPS: int = 2
 var jumps_left: int = MAX_JUMPS
@@ -150,6 +157,7 @@ var _slide_time_elapsed: float = 0.0
 var _shot_fired_in_animation: bool = false
 var _shooting_anim_playing: bool = false
 
+# muzzle/base transforms saved from scene
 var _muzzle_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_base_scale: Vector2 = Vector2.ONE
 var _muzzle_up_base_offset: Vector2 = Vector2.ZERO
@@ -161,20 +169,60 @@ var _muzzle_crouch_base_scale: Vector2 = Vector2.ONE
 var _muzzle_up_crouch_base_offset: Vector2 = Vector2.ZERO
 var _muzzle_up_crouch_base_scale: Vector2 = Vector2.ONE
 
-# ----------
-# _ready ---
-# ----------
+var _normal_shape_base_offset: Vector2 = Vector2.ZERO
+var _normal_shape_base_scale: Vector2 = Vector2.ONE
+var _slide_shape_base_offset: Vector2 = Vector2.ZERO
+var _slide_shape_base_scale: Vector2 = Vector2.ONE
+var _head_shape_base_offset: Vector2 = Vector2.ZERO
+var _head_shape_base_scale: Vector2 = Vector2.ONE
+
+# ---------------------------
+# Movement & action enums
+# ---------------------------
+enum MovementState {
+	MOVE_IDLE,
+	MOVE_WALK,
+	MOVE_RUN,
+	MOVE_CROUCH,
+	MOVE_DASH,
+	MOVE_JUMP,
+	MOVE_FALL
+}
+enum ActionState {
+	A_NONE,
+	A_AIM,
+	A_AIM_UP,
+	A_SHOOT,
+	A_SLIDE_SHOOT
+}
+
+var movement_state: int = MovementState.MOVE_IDLE
+var action_state: int = ActionState.A_NONE
+
+# horizontal smoothing
+@export var H_ACCEL: float = 1200.0
+@export var H_DECEL: float = 1200.0
+
+# ------------------------
+# Shot direction locking
+# ------------------------
+var _shot_dir_locked: bool = false
+var _locked_shot_dir: Vector2 = Vector2.ZERO
+
+# -------------
+# Initialization
+# -------------
 func _ready() -> void:
 	animated_sprite.animation_finished.connect(_on_animation_finished)
 	animated_sprite.frame_changed.connect(_on_frame_changed)
 
+	# cache base offsets & scales (use abs for x to simplify flipping)
 	if muzzle:
 		_muzzle_base_offset = Vector2(abs(muzzle.position.x), muzzle.position.y)
 		_muzzle_base_scale = muzzle.scale.abs()
 	if muzzle_up:
 		_muzzle_up_base_offset = Vector2(abs(muzzle_up.position.x), muzzle_up.position.y)
 		_muzzle_up_base_scale = muzzle_up.scale.abs()
-
 	if muzzle_dash:
 		_muzzle_dash_base_offset = Vector2(abs(muzzle_dash.position.x), muzzle_dash.position.y)
 		_muzzle_dash_base_scale = muzzle_dash.scale.abs()
@@ -185,6 +233,16 @@ func _ready() -> void:
 		_muzzle_up_crouch_base_offset = Vector2(abs(muzzle_up_crouch.position.x), muzzle_up_crouch.position.y)
 		_muzzle_up_crouch_base_scale = muzzle_up_crouch.scale.abs()
 
+	if normal_shape:
+		_normal_shape_base_offset = Vector2(abs(normal_shape.position.x), normal_shape.position.y)
+		_normal_shape_base_scale = normal_shape.scale.abs()
+	if slide_shape:
+		_slide_shape_base_offset = Vector2(abs(slide_shape.position.x), slide_shape.position.y)
+		_slide_shape_base_scale = slide_shape.scale.abs()
+	if head_shape:
+		_head_shape_base_offset = Vector2(abs(head_shape.position.x), head_shape.position.y)
+		_head_shape_base_scale = head_shape.scale.abs()
+
 	_hit_timer = Timer.new()
 	_hit_timer.one_shot = true
 	add_child(_hit_timer)
@@ -192,26 +250,23 @@ func _ready() -> void:
 	_hit_timer.connect("timeout", Callable(self, "_on_hit_recovered"))
 
 # -------------
-# Main loop ---
+# Main loop
 # -------------
 func _physics_process(delta: float) -> void:
 	_slide_shoot_cd = max(0.0, _slide_shoot_cd - delta)
 
 	_handle_input(delta)
+	_update_movement(delta)
 	_apply_gravity(delta)
-	_handle_horizontal()
-
 	_update_slide_timer(delta)
 
 	move_and_slide()
 	_update_muzzle_transform()
 	_handle_landing()
 
-	was_on_floor = is_on_floor()
-	if velocity.y >= 0:
-		is_jumping = false
+	_select_states()
 
-	# shooting handled by explicit state selection early
+	# if shooting, prioritize shoot animations (we still run physics)
 	if shooting:
 		_change_state(_state_for_motion_and_flags())
 		return
@@ -222,29 +277,30 @@ func _physics_process(delta: float) -> void:
 	if _can_change_state():
 		_change_state(_state_for_motion_and_flags())
 
-# small helper to avoid repeating checks
+	was_on_floor = is_on_floor()
+	if velocity.y >= 0:
+		is_jumping = false
+
 func _can_change_state() -> bool:
 	return not is_dashing and not is_hit
 
 # ------------------
-# Input handling ---
+# Input & movement
 # ------------------
-
 func _handle_input(delta: float) -> void:
-	# update facing
+	# facing
 	var axis_dir := int(Input.get_axis("Left", "Right"))
 	if axis_dir != 0:
 		facing_dir = axis_dir
 	if animated_sprite:
 		animated_sprite.flip_h = facing_dir > 0
 
-	# read aim inputs first
+	# aim inputs
 	aiming = Input.is_action_pressed("Aim")
 	aim_up = Input.is_action_pressed("Up") and is_on_floor() and not is_dashing
 
-	# crouch
-	var crouch_pressed := Input.is_action_pressed("Crouch")
-	var want_crouch := crouch_pressed and is_on_floor() and not is_dashing
+	# crouch toggle
+	var want_crouch := Input.is_action_pressed("Crouch") and is_on_floor() and not is_dashing
 	if want_crouch != is_crouching:
 		is_crouching = want_crouch
 		if is_crouching:
@@ -253,11 +309,11 @@ func _handle_input(delta: float) -> void:
 
 	_update_muzzle_transform()
 
-	# Dash: can't start while shooting or crouching
+	# dash
 	if Input.is_action_just_pressed("Dash") and not shooting and not is_crouching and not is_hit:
 		_start_dash()
 
-	# Shoot: immediate, or slide-shoot if dashing
+	# shoot
 	if Input.is_action_just_pressed("Shoot") and not shooting:
 		if is_dashing and _slide_shoot_cd <= 0.0:
 			_do_slide_shoot()
@@ -265,14 +321,15 @@ func _handle_input(delta: float) -> void:
 		else:
 			_shot_fired_in_animation = false
 			shooting = true
+			_shot_dir_locked = true
+			_locked_shot_dir = Vector2(0, -1) if aim_up else Vector2(facing_dir, 0)
 			_change_state(_state_for_motion_and_flags())
 
-	# cancel pre-aim if dashing/hit
+	# cancel pre-aim when dashing or hit
 	if is_dashing or is_hit:
 		pre_aiming = false
 
-	# Jump buffering & coyote
-	# NOTE: we still set the buffer on press, but we prevent consuming it while shooting
+	# jump buffering & coyote
 	if Input.is_action_just_pressed("Jump"):
 		jump_buffer_timer = jump_buffer_time
 	else:
@@ -283,8 +340,7 @@ func _handle_input(delta: float) -> void:
 	else:
 		coyote_timer = max(coyote_timer - delta, 0)
 
-	# consume buffered jump (first jump)
-	# BLOCK jump consumption while shooting (so shooting keeps playing until it finishes)
+	# consume buffered jump (first jump) - blocked while shooting/dashing
 	if jump_buffer_timer > 0 and not is_dashing and not shooting and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
 		jumps_left -= 1
 		jump_buffer_timer = 0
@@ -293,7 +349,7 @@ func _handle_input(delta: float) -> void:
 		aim_up = false
 		_change_state(STATE_JUMP)
 		_start_jump_sequence()
-	# double jump immediate (also blocked while shooting)
+	# double jump (also blocked while shooting)
 	elif Input.is_action_just_pressed("Jump") and jumps_left > 0 and not is_dashing and not shooting:
 		jumps_left -= 1
 		is_jumping = true
@@ -305,8 +361,21 @@ func _handle_input(delta: float) -> void:
 
 	jump_held = Input.is_action_pressed("Jump")
 
+func _update_movement(delta: float) -> void:
+	if is_crouching:
+		velocity.x = move_toward(velocity.x, 0, H_DECEL * delta)
+		return
+	if is_dashing or is_hit:
+		return
+
+	var dir := int(Input.get_axis("Left", "Right"))
+	var is_running := Input.is_action_pressed("Run")
+	var target_speed := dir * (RUN_SPEED if is_running else WALK_SPEED) if dir != 0 else 0.0
+	var accel := H_ACCEL if abs(target_speed) > abs(velocity.x) else H_DECEL
+	velocity.x = move_toward(velocity.x, target_speed, accel * delta)
+
 # ----------------
-# Dash / slide ---
+# Dash / slide
 # ----------------
 func _start_dash() -> void:
 	velocity.x = facing_dir * DASH_SPEED
@@ -323,8 +392,10 @@ func _end_dash() -> void:
 	_change_state(_state_for_motion_and_flags())
 
 func _set_collision_mode(slide: bool) -> void:
-	slide_shape.set_deferred("disabled", not slide)
-	normal_shape.set_deferred("disabled", slide)
+	if slide_shape:
+		slide_shape.set_deferred("disabled", not slide)
+	if normal_shape:
+		normal_shape.set_deferred("disabled", slide)
 
 func _update_slide_timer(delta: float) -> void:
 	if not is_dashing:
@@ -334,10 +405,9 @@ func _update_slide_timer(delta: float) -> void:
 		_end_dash()
 
 # ----------------------------
-# Movement: gravity & horizontal
+# Jump & gravity
 # ----------------------------
 func _start_jump_sequence() -> void:
-	# keep the previous behavior: delayed first-jump
 	await get_tree().create_timer(JUMP_DELAY).timeout
 	velocity.y = JUMP_VELOCITY
 	jump_hold_timer = JUMP_HOLD_TIME
@@ -355,22 +425,6 @@ func _apply_gravity(delta: float) -> void:
 			if velocity.y >= 0 or not jump_held:
 				jump_hold_timer = 0
 
-func _handle_horizontal() -> void:
-	if is_crouching:
-		velocity.x = 0
-		return
-
-	if not is_dashing and not is_hit:
-		var dir := int(Input.get_axis("Left", "Right"))
-		var is_running := Input.is_action_pressed("Run")
-		if dir != 0:
-			velocity.x = dir * (RUN_SPEED if is_running else WALK_SPEED)
-		else:
-			velocity.x = move_toward(velocity.x, 0, WALK_SPEED)
-
-# ----------------------------
-# Landing & state selection
-# ----------------------------
 func _handle_landing() -> void:
 	if not was_on_floor and is_on_floor():
 		jumps_left = MAX_JUMPS
@@ -380,27 +434,46 @@ func _handle_landing() -> void:
 			return
 		_change_state(_state_for_motion_and_flags())
 
-func _select_state_from_motion() -> void:
-	_change_state(_state_for_motion_and_flags())
+# ----------------------------
+# Input-first state selection
+# ----------------------------
+func _select_states() -> void:
+	# action priority
+	if is_dashing and Input.is_action_just_pressed("Shoot") and _slide_shoot_cd <= 0.0:
+		action_state = ActionState.A_SLIDE_SHOOT
+	elif shooting:
+		action_state = ActionState.A_SHOOT
+	elif aim_up:
+		action_state = ActionState.A_AIM_UP
+	elif aiming:
+		action_state = ActionState.A_AIM
+	else:
+		action_state = ActionState.A_NONE
 
-# ----------------------------
-# State selection helpers (condensed)
-# ----------------------------
+	# movement mapping
+	if is_dashing:
+		movement_state = MovementState.MOVE_DASH
+		return
+	if is_crouching and is_on_floor():
+		movement_state = MovementState.MOVE_CROUCH
+		return
+	if not is_on_floor():
+		movement_state = MovementState.MOVE_JUMP if velocity.y < 0 else MovementState.MOVE_FALL
+		return
+
+	var axis := int(Input.get_axis("Left", "Right"))
+	if axis == 0:
+		movement_state = MovementState.MOVE_IDLE
+		return
+	var running := Input.is_action_pressed("Run")
+	movement_state = MovementState.MOVE_RUN if running else MovementState.MOVE_WALK
+
+# ----------------------------------------
+# Map movement_state + action_state -> STATE_*
+# ----------------------------------------
 func _state_for_motion_and_flags() -> int:
-	# motion primitives
-	var abs_vx = abs(velocity.x)
-	var on_floor = is_on_floor()
-	var motion_is_idle = on_floor and abs_vx < 0.01
-	var motion_is_walk = on_floor and abs_vx >= 0.01 and abs_vx <= WALK_SPEED
-	var motion_is_run  = on_floor and abs_vx > WALK_SPEED
-	var airborne_up = not on_floor and velocity.y < 0
-
-	# airborne branch
-	if not on_floor:
-		return _air_state_for_shoot_or_aim(airborne_up)
-
-	# crouch -> only the idle-like crouch variants exist
-	if is_crouching:
+	# crouch (ground) variants
+	if movement_state == MovementState.MOVE_CROUCH:
 		if shooting:
 			return STATE_CROUCH_SHOOTUP_IDLE if aim_up else STATE_CROUCH_SHOOT_IDLE
 		if aim_up:
@@ -409,66 +482,68 @@ func _state_for_motion_and_flags() -> int:
 			return STATE_CROUCH_AIM_IDLE
 		return STATE_CROUCH_IDLE
 
-	# shooting on ground (aim-up handled separately)
-	if shooting:
-		if aim_up:
-			if motion_is_idle:
-				return STATE_SHOOTUP_IDLE
-			elif motion_is_walk:
-				return STATE_SHOOTUP_WALK
-			else:
-				return STATE_SHOOTUP_RUN
-		if motion_is_idle:
-			return STATE_SHOOT_IDLE
-		if motion_is_walk:
-			return STATE_SHOOT_WALK
-		if motion_is_run:
-			return STATE_SHOOT_RUN
-		return STATE_SHOOT_IDLE
+	# slide-shoot while dashing
+	if movement_state == MovementState.MOVE_DASH and action_state == ActionState.A_SLIDE_SHOOT:
+		return STATE_SHOOT_DASH
 
-	# aim-up (ground)
-	if aim_up:
-		if motion_is_idle:
+	# airborne
+	if movement_state == MovementState.MOVE_JUMP or movement_state == MovementState.MOVE_FALL:
+		var airborne_up := movement_state == MovementState.MOVE_JUMP
+		if action_state == ActionState.A_SHOOT:
+			return STATE_SHOOT_JUMP if airborne_up else STATE_SHOOT_FALL
+		if action_state == ActionState.A_AIM or action_state == ActionState.A_AIM_UP:
+			return STATE_AIM_JUMP if airborne_up else STATE_AIM_FALL
+		return STATE_JUMP if airborne_up else STATE_FALL
+
+	# ground shooting: prefer ShootUp when aiming up
+	if action_state == ActionState.A_SHOOT:
+		if aim_up:
+			if movement_state == MovementState.MOVE_IDLE:
+				return STATE_SHOOTUP_IDLE
+			if movement_state == MovementState.MOVE_WALK:
+				return STATE_SHOOTUP_WALK
+			return STATE_SHOOTUP_RUN
+		if movement_state == MovementState.MOVE_IDLE:
+			return STATE_SHOOT_IDLE
+		if movement_state == MovementState.MOVE_WALK:
+			return STATE_SHOOT_WALK
+		return STATE_SHOOT_RUN
+
+	# aim up on ground
+	if action_state == ActionState.A_AIM_UP:
+		if movement_state == MovementState.MOVE_IDLE:
 			return STATE_AIMUP_IDLE
-		if motion_is_walk:
+		if movement_state == MovementState.MOVE_WALK:
 			return STATE_AIMUP_WALK
 		return STATE_AIMUP_RUN
 
-	# normal aim (ground)
-	if aiming:
-		if motion_is_idle:
+	# aim normal on ground
+	if action_state == ActionState.A_AIM:
+		if movement_state == MovementState.MOVE_IDLE:
 			return STATE_AIM_IDLE
-		if motion_is_walk:
+		if movement_state == MovementState.MOVE_WALK:
 			return STATE_AIM_WALK
 		return STATE_AIM_RUN
 
-	# plain motion states
-	if motion_is_idle:
+	# plain motion
+	if movement_state == MovementState.MOVE_IDLE:
 		return STATE_IDLE
-	if motion_is_walk:
+	if movement_state == MovementState.MOVE_WALK:
 		return STATE_WALK
 	return STATE_RUN
 
-func _air_state_for_shoot_or_aim(airborne_up: bool) -> int:
-	if shooting:
-		return STATE_SHOOT_JUMP if airborne_up else STATE_SHOOT_FALL
-	if aiming:
-		return STATE_AIM_JUMP if airborne_up else STATE_AIM_FALL
-	return STATE_JUMP if airborne_up else STATE_FALL
-
 # ----------------------
-# Animation handling ---
+# Animation handling
 # ----------------------
-func _require_play(_name: String) -> void:
-	if not animated_sprite:
-		push_error("AnimatedSprite2D node missing (animated_sprite is null).")
-		assert(false, "AnimatedSprite2D node missing.")
-	if not animated_sprite.sprite_frames:
-		push_error("sprite_frames missing on AnimatedSprite2D.")
-		assert(false, "sprite_frames missing.")
+func _require_play(_name: String, start_frame: int = -1) -> void:
+	assert(animated_sprite, "AnimatedSprite2D missing.")
+	assert(animated_sprite.sprite_frames, "SpriteFrames missing.")
 	animated_sprite.flip_h = facing_dir > 0
 	assert(animated_sprite.sprite_frames.has_animation(_name), "Missing animation: " + _name)
 	animated_sprite.play(_name)
+	if start_frame >= 0:
+		var frame_count := animated_sprite.sprite_frames.get_frame_count(_name)
+		animated_sprite.frame = clamp(start_frame, 0, max(frame_count - 1, 0))
 	_shooting_anim_playing = _name.find("Shoot") != -1
 
 func _change_state(new_state: int) -> void:
@@ -477,35 +552,31 @@ func _change_state(new_state: int) -> void:
 
 	var anim_name = _STATE_ANIM.get(new_state, "")
 	if anim_name == "":
-		push_warning("--- ERROR ---No animation mapping for state: " + str(new_state))
+		push_warning("No animation mapping for state: " + str(new_state))
+		state = new_state
 		return
 
-	# If a shooting animation is already playing, and the new animation is also a Shoot variant,
-	# update state but don't restart the animation (prevents ShootJump<->ShootFall flicker).
-	var cur_anim := ""
-	if animated_sprite:
-		cur_anim = animated_sprite.animation
-
-	var cur_is_shoot := cur_anim != "" and cur_anim.find("Shoot") != -1
+	var cur_anim = animated_sprite.animation if animated_sprite else ""
+	var cur_is_shoot = cur_anim != "" and cur_anim.find("Shoot") != -1
 	var new_is_shoot = anim_name.find("Shoot") != -1
 
+	# If we're already in a Shoot animation and switching to another Shoot, preserve playhead
 	if cur_is_shoot and new_is_shoot and _shooting_anim_playing:
+		var cur_frame := animated_sprite.frame
 		state = new_state
+		_require_play(anim_name, cur_frame)
 		return
 
 	state = new_state
 	_require_play(anim_name)
 
 # ----------------
-# Damage / hit ---
+# Damage & hit
 # ----------------
 func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback_strength: float = -1.0) -> void:
 	if is_dashing:
 		return
-
 	pre_aiming = false
-	# ToDo: maybe reenable with probability
-	# is_hit = true
 	if _hit_timer:
 		_hit_timer.start(HIT_STUN_TIME)
 
@@ -514,6 +585,7 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 		var t = get_tree().create_timer(HIT_STUN_TIME)
 		t.timeout.connect(Callable(self, "_restore_color"))
 
+	# compute facing of knockback if needed (not applied currently)
 	var dir_x: int = 0
 	if source_pos != Vector2.ZERO:
 		dir_x = int(sign(global_position.x - source_pos.x))
@@ -521,13 +593,8 @@ func take_damage(_damage: int = 1, source_pos: Vector2 = Vector2.ZERO, knockback
 			dir_x = int(sign(velocity.x)) if abs(velocity.x) > 0.1 else -facing_dir
 	else:
 		dir_x = int(sign(velocity.x)) if abs(velocity.x) > 0.1 else -facing_dir
-
 	if dir_x == 0:
 		dir_x = 1
-
-	var _used_kb = knockback_strength if knockback_strength > 0.0 else hit_kb_strength
-	# ToDo: maybe reenable with probability
-	# velocity.x = dir_x * _used_kb 
 
 func _on_hit_recovered() -> void:
 	is_hit = false
@@ -540,9 +607,11 @@ func _restore_color() -> void:
 		animated_sprite.modulate = Color(1, 1, 1)
 
 # -------------------------
-# Slide-shoot / bullets ---
+# Slide-shoot / bullets
 # -------------------------
 func _do_slide_shoot() -> void:
+	_shot_dir_locked = true
+	_locked_shot_dir = Vector2(0, -1) if aim_up else Vector2(facing_dir, 0)
 	_spawn_bullet_from_muzzle()
 	_shot_fired_in_animation = true
 	animated_sprite.play("ShootDash")
@@ -556,7 +625,6 @@ func _reset_shot_flag() -> void:
 
 func _spawn_bullet_from_muzzle() -> void:
 	if not BulletScene:
-		print_debug("BulletScene not assigned; cannot spawn bullet.")
 		return
 
 	var b := BulletScene.instantiate()
@@ -564,19 +632,43 @@ func _spawn_bullet_from_muzzle() -> void:
 		return
 
 	var chosen_muzzle: Node2D = null
+	var dir_vec: Vector2 = Vector2.ZERO
 
-	if is_dashing and muzzle_dash:
-		chosen_muzzle = muzzle_dash
-	elif is_crouching and aim_up and muzzle_up_crouch:
-		chosen_muzzle = muzzle_up_crouch
-	elif is_crouching and muzzle_crouch:
-		chosen_muzzle = muzzle_crouch
-	elif aim_up and muzzle_up:
-		chosen_muzzle = muzzle_up
-	elif muzzle:
-		chosen_muzzle = muzzle
+	# 1) prefer locked direction (set when shooting started)
+	if _shot_dir_locked and _locked_shot_dir != Vector2.ZERO:
+		dir_vec = _locked_shot_dir.normalized()
+		if dir_vec.y < -0.5:
+			chosen_muzzle = muzzle_up_crouch if is_crouching and muzzle_up_crouch else muzzle_up if muzzle_up else null
+		else:
+			chosen_muzzle = muzzle_dash if is_dashing and muzzle_dash else muzzle_crouch if is_crouching and muzzle_crouch else muzzle
+		_shot_dir_locked = false
+		_locked_shot_dir = Vector2.ZERO
+	else:
+		# 2) pick visible muzzle (what the player sees)
+		if is_dashing and muzzle_dash and muzzle_dash.visible:
+			chosen_muzzle = muzzle_dash
+		elif is_crouching and muzzle_up_crouch and muzzle_up_crouch.visible:
+			chosen_muzzle = muzzle_up_crouch
+		elif is_crouching and muzzle_crouch and muzzle_crouch.visible:
+			chosen_muzzle = muzzle_crouch
+		elif muzzle_up and muzzle_up.visible:
+			chosen_muzzle = muzzle_up
+		elif muzzle and muzzle.visible:
+			chosen_muzzle = muzzle
 
-	# fallback: compute a reasonable spawn position if no node present
+		# 3) fallback: infer direction from chosen muzzle or animation
+		if chosen_muzzle == null:
+			var anim_name = animated_sprite.animation if animated_sprite else ""
+			var anim_wants_up = anim_name != "" and anim_name.findn("Up") != -1
+			dir_vec = Vector2(0, -1) if anim_wants_up else Vector2(facing_dir, 0)
+		else:
+			dir_vec = Vector2(0, -1) if chosen_muzzle == muzzle_up or chosen_muzzle == muzzle_up_crouch else Vector2(facing_dir, 0)
+
+	# final fallback
+	if dir_vec == Vector2.ZERO:
+		dir_vec = Vector2(facing_dir, 0)
+
+	# spawn pos from chosen muzzle or approximate
 	var spawn_pos: Vector2 = global_position + Vector2(facing_dir * 12, -4)
 	if chosen_muzzle:
 		spawn_pos = chosen_muzzle.global_position
@@ -589,11 +681,7 @@ func _spawn_bullet_from_muzzle() -> void:
 	if b.has_method("set_shooter_owner"):
 		b.set_shooter_owner(self)
 
-	var dir_vec := Vector2(facing_dir, 0)
-	# aim-up should point straight up regardless of facing, but for a crouch-aim-up we also want up
-	if aim_up:
-		dir_vec = Vector2(0, -1)
-
+	dir_vec = dir_vec.normalized()
 	if b.has_method("set_direction"):
 		b.set_direction(dir_vec, BULLET_SPEED)
 	elif b.has_method("set_velocity"):
@@ -606,72 +694,73 @@ func _spawn_bullet_from_muzzle() -> void:
 		b.rotation = dir_vec.angle()
 
 # ---------------------------
-# Muzzle transform update ---
+# Muzzle transform update
 # ---------------------------
 func _update_muzzle_transform() -> void:
-	# MAIN muzzle (used while standing / walking / run)
 	if muzzle:
-		var y_offset := _muzzle_base_offset.y
-		if is_crouching:
-			y_offset += 6
-		if aim_up:
-			# hide the forward muzzle when aiming up
-			muzzle.visible = false
-		else:
-			muzzle.visible = true
-
+		var y_offset := _muzzle_base_offset.y + (6 if is_crouching else 0)
+		muzzle.visible = not aim_up
 		muzzle.position.x = _muzzle_base_offset.x * facing_dir
 		muzzle.position.y = y_offset
-		muzzle.scale.x = _muzzle_base_scale.x * float(facing_dir)
-		muzzle.scale.y = _muzzle_base_scale.y
+		muzzle.scale = Vector2(_muzzle_base_scale.x * float(facing_dir), _muzzle_base_scale.y)
 
 	if muzzle_up:
-		if aim_up and not is_crouching:
-			muzzle_up.visible = true
-			var up_y := _muzzle_up_base_offset.y
-			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir # shoot up is turned
-			muzzle_up.position.y = up_y
-			muzzle_up.scale.x = _muzzle_up_base_scale.x * float(facing_dir)
-			muzzle_up.scale.y = _muzzle_up_base_scale.y
-		else:
-			muzzle_up.visible = false
+		var show_up := aim_up and not is_crouching
+		muzzle_up.visible = show_up
+		if show_up:
+			muzzle_up.position.x = _muzzle_up_base_offset.x * -facing_dir
+			muzzle_up.position.y = _muzzle_up_base_offset.y
+			muzzle_up.scale = Vector2(_muzzle_up_base_scale.x * float(facing_dir), _muzzle_up_base_scale.y)
 
 	if muzzle_dash:
 		muzzle_dash.visible = is_dashing
 		muzzle_dash.position.x = _muzzle_dash_base_offset.x * facing_dir
 		muzzle_dash.position.y = _muzzle_dash_base_offset.y
-		muzzle_dash.scale.x = _muzzle_dash_base_scale.x * float(facing_dir)
-		muzzle_dash.scale.y = _muzzle_dash_base_scale.y
+		muzzle_dash.scale = Vector2(_muzzle_dash_base_scale.x * float(facing_dir), _muzzle_dash_base_scale.y)
 
 	if muzzle_crouch:
 		muzzle_crouch.visible = is_crouching and not aim_up
 		muzzle_crouch.position.x = _muzzle_crouch_base_offset.x * facing_dir
 		muzzle_crouch.position.y = _muzzle_crouch_base_offset.y
-		muzzle_crouch.scale.x = _muzzle_crouch_base_scale.x * float(facing_dir)
-		muzzle_crouch.scale.y = _muzzle_crouch_base_scale.y
+		muzzle_crouch.scale = Vector2(_muzzle_crouch_base_scale.x * float(facing_dir), _muzzle_crouch_base_scale.y)
 
 	if muzzle_up_crouch:
 		muzzle_up_crouch.visible = is_crouching and aim_up
-		muzzle_up_crouch.position.x = _muzzle_up_crouch_base_offset.x * -facing_dir # shoot up is turned
-		muzzle_up_crouch.position.y = _muzzle_up_crouch_base_offset.y
-		muzzle_up_crouch.scale.x = _muzzle_up_crouch_base_scale.x * float(facing_dir)
-		muzzle_up_crouch.scale.y = _muzzle_up_crouch_base_scale.y
+		if muzzle_up_crouch.visible:
+			muzzle_up_crouch.position.x = _muzzle_up_crouch_base_offset.x * -facing_dir
+			muzzle_up_crouch.position.y = _muzzle_up_crouch_base_offset.y
+			muzzle_up_crouch.scale = Vector2(_muzzle_up_crouch_base_scale.x * float(facing_dir), _muzzle_up_crouch_base_scale.y)
+
+	if normal_shape:
+		normal_shape.position.x = _normal_shape_base_offset.x * -facing_dir
+		normal_shape.position.y = _normal_shape_base_offset.y
+		normal_shape.scale = Vector2(_normal_shape_base_scale.x * float(facing_dir), _normal_shape_base_scale.y)
+
+	if slide_shape:
+		slide_shape.position.x = _slide_shape_base_offset.x * facing_dir
+		slide_shape.position.y = _slide_shape_base_offset.y
+		slide_shape.scale = Vector2(_slide_shape_base_scale.x * float(facing_dir), _slide_shape_base_scale.y)
+
+	if head_shape:
+		head_shape.position.x = _head_shape_base_offset.x * -facing_dir
+		head_shape.position.y = _head_shape_base_offset.y
+		head_shape.scale = Vector2(_head_shape_base_scale.x * float(facing_dir), _head_shape_base_scale.y)
 
 # ---------------------
-# Animation signals ---
+# Animation signals
 # ---------------------
-
 func _on_animation_finished() -> void:
 	var a := animated_sprite.animation
 	is_jumping = false
 
-	# If a Shoot animation finished, clear shooting flags and mark shooting anim not playing.
 	if a != "" and a.find("Shoot") != -1:
 		_shooting_anim_playing = false
 		shooting = false
 		_shot_fired_in_animation = false
+		_shot_dir_locked = false
+		_locked_shot_dir = Vector2.ZERO
 
-		# After shoot ends, if a jump was buffered while shooting, consume it now (if valid)
+		# consume buffered jump if present
 		if jump_buffer_timer > 0 and not is_dashing and jumps_left == MAX_JUMPS and (is_on_floor() or coyote_timer > 0):
 			jumps_left -= 1
 			jump_buffer_timer = 0
@@ -691,7 +780,7 @@ func _on_animation_finished() -> void:
 	_change_state(_state_for_motion_and_flags())
 
 func _on_frame_changed() -> void:
-	# handle pre-aim frames
+	# pre-aim handling
 	if pre_aiming:
 		if aim_up or aiming:
 			pre_aiming = false
@@ -706,8 +795,9 @@ func _on_frame_changed() -> void:
 			_change_state(_state_for_motion_and_flags())
 			return
 
-	# spawn bullet at shot frame if not already fired
+	# spawn bullet on SHOT_FRAME (single shared frame)
 	var anim_name := animated_sprite.animation
-	if shooting and anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
-		_shot_fired_in_animation = true
-		_spawn_bullet_from_muzzle()
+	if anim_name != "" and anim_name.find("Shoot") != -1 and not _shot_fired_in_animation:
+		if animated_sprite.frame == SHOT_FRAME:
+			_shot_fired_in_animation = true
+			_spawn_bullet_from_muzzle()

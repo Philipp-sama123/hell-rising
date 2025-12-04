@@ -1,4 +1,4 @@
-[gd_scene load_steps=212 format=3 uid="uid://c2ifcpfan6bo0"]
+[gd_scene load_steps=213 format=3 uid="uid://c2ifcpfan6bo0"]
 
 [ext_resource type="Script" uid="uid://yrs2ka60puoa" path="res://prefabs/player.gd" id="1_4dohe"]
 [ext_resource type="Texture2D" uid="uid://cw1cpa5qqro6x" path="res://assets/FemaleAgent/GandalfHardcore Female Agent black.png" id="1_72ieh"]
@@ -1625,26 +1625,38 @@ animations = [{
 "speed": 5.0
 }]
 
+[sub_resource type="CircleShape2D" id="CircleShape2D_4dohe"]
+radius = 6.0
+
 [sub_resource type="CapsuleShape2D" id="CapsuleShape2D_7fbtx"]
-height = 48.39618
+radius = 6.0
+height = 30.24761
 
 [node name="Player" type="CharacterBody2D"]
 scale = Vector2(1, 0.9918139)
 collision_layer = 2
 collision_mask = 9
+floor_max_angle = 1.3089969
+safe_margin = 1.0
 script = ExtResource("1_4dohe")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 texture_filter = 1
 sprite_frames = SubResource("SpriteFrames_an77k")
-animation = &"ShootUpIdle"
+animation = &"ShootWalk"
+flip_h = true
+
+[node name="HeadShape" type="CollisionShape2D" parent="."]
+position = Vector2(-4, -4.033015)
+shape = SubResource("CircleShape2D_4dohe")
+disabled = true
 
 [node name="NormalShape" type="CollisionShape2D" parent="."]
-position = Vector2(1, 6)
+position = Vector2(-4, 15.125)
 shape = SubResource("CapsuleShape2D_7fbtx")
 
 [node name="SlideShape" type="CollisionShape2D" parent="."]
-position = Vector2(0, 8)
+position = Vector2(0, 11.090791)
 rotation = 1.5707964
 shape = SubResource("CapsuleShape2D_7fbtx")
 disabled = true
